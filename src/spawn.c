@@ -1,5 +1,6 @@
 #include "spawn.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -476,6 +477,27 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
     sm64_seed(&trng, domain_seed("nwndgen/theme/1", 16, seed, module_tag));
     d->theme = eligible[rnd(&trng, ne)];
     th = &ro->theme[d->theme];
+
+    d->nhench = 0;
+    if (sc->henchmen > 0) { /* N distinct stock families, each at the level nearest the recommended average */
+        int pool[6], np = (int)ro->nhench, avg = (int)(sc->min_level + sc->max_level) / 2, nn, k;
+        sm64 hrng;
+        if (np < sc->henchmen) {
+            set_err(err, "henchmen %d needs at least %d 'henchman' lines in the roster (it has %d)", sc->henchmen, sc->henchmen, np);
+            return -1;
+        }
+        for (k = 0; k < np; k++)
+            pool[k] = k;
+        sm64_seed(&hrng, domain_seed("nwndgen/hench/1", 15, seed, module_tag));
+        nn = avg - 3 < 1 ? 1 : avg - 3 > 11 ? 11 : avg - 3; /* stock nw_hen_xxx_NN is a level NN+3 character */
+        for (k = 0; k < sc->henchmen; k++) {
+            int j = k + rnd(&hrng, np - k), tmp = pool[k];
+            pool[k] = pool[j];
+            pool[j] = tmp;
+            snprintf(d->hench[k], sizeof d->hench[k], "%s_%02d", ro->hench[pool[k]], nn);
+            d->nhench++;
+        }
+    }
 
     for (i = 0; i < d->n; i++) {
         dungeon_area *a = &d->area[i];

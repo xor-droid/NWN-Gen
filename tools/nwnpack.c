@@ -821,6 +821,26 @@ static int cmd_roster_check(const char *root, const char *path)
             free(b);
         }
     }
+    for (i = 0; i < ro.nhench; i++) { /* henchmen: <prefix>_01 .. _11 exist and are level NN+3 (what the generator picks from) */
+        int nn;
+        for (nn = 1; nn <= 11; nn++) {
+            char nm[24];
+            const gff_field *cl;
+            long lv = 0;
+            size_t q;
+            snprintf(nm, sizeof nm, "%s_%02d", ro.hench[i], nn);
+            if (rc_load(&rm, nm, 2027, &g, &b, NULL) != 0) continue;
+            cl = gff_find(g.root, "ClassList");
+            for (q = 0; cl && q < cl->nlist; q++)
+                lv += (long)gff_get_int(cl->list[q], "ClassLevel", 0);
+            if (lv != nn + 3) RBAD("henchman %s has %ld class levels, expected %d", nm, lv, nn + 3);
+            if (nn == 1 || nn == 11)
+                printf("     henchman %-14s level %2ld, faction %lld\n", nm, lv, (long long)gff_get_int(g.root, "FactionID", -1));
+            n++;
+            gff_free(&g);
+            free(b);
+        }
+    }
     {
         const char *items[2] = {ro.key, ro.relic};
         for (i = 0; i < 2; i++)

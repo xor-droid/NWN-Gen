@@ -929,6 +929,14 @@ static int build_ifo(const gff *in, const recipe *r, const dungeon *d, uint64_t 
         gff_list_append(al, e);
         TRY(gff_set_string(e, "Area_Name", GFF_RESREF, d->area[i].resref, err));
     }
+    if (d->nhench) { /* the area script hands these to the first player */
+        TRY(add_var(s, "scel_hn", 0, NULL, d->nhench, err));
+        for (i = 0; i < (size_t)d->nhench; i++) {
+            char nm[24];
+            snprintf(nm, sizeof nm, "scel_h%d", (int)i + 1);
+            TRY(add_var(s, nm, 1, d->hench[i], 0, err));
+        }
+    }
     TRY(gff_set_string(s, "Mod_Entry_Area", GFF_RESREF, a0->resref, err));
     direction(a0->pair_start, a0->pair_start + 2, &dx, &dy);
     TRY(gff_set_float(s, "Mod_Entry_X", (float)cc(a0->pair_start[0]), err));

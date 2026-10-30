@@ -136,6 +136,7 @@ Add two lines to the recipe and the dungeon gets monsters and a goal:
 roster ../assets/roster.txt         creature roster, see below
 scripts ../assets/scripts           directory with scel_enter.{nss,ncs} and scel_acquire.{nss,ncs}
 spawn_mode full                     optional: full (default) or boss_only
+henchmen 0                        optional: 0-5 stock AI henchmen join the first player, see Henchmen below
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions
@@ -225,6 +226,25 @@ exists and is not plot or cursed, and prints each item's value so the bands can 
 loot, that each item is in its theme's list and CR range, and (with `--root`) that each item exists. **Whether the items and gold show up in the corpse in
 game, and whether the random treasure is really suppressed, is unverified until a module is loaded.** Changing `scel_enter` changes the bytes of every
 module built with roster and scripts, including older ones rebuilt from the same seed.
+
+### Henchmen (optional: `henchmen N`, same `roster` + `scripts`)
+
+NWN1:EE cannot give one player direct control of several characters, so a party is built from **AI henchmen**: stock companions that follow the player,
+fight, and can be spoken to (the stock conversation handles orders and dismissal). Add to the recipe:
+
+```
+henchmen 2                          0-5 (default 0 = none); needs roster and scripts
+```
+
+and to the roster one `henchman <prefix>` line per stock family the generator may pick from (up to 6; `assets/roster.txt` lists the six stock ones,
+`nw_hen_dae`, `bod`, `gal`, `gri`, `lin`, `sha`). A family `<prefix>` has blueprints `<prefix>_01` .. `<prefix>_11`, each a character of level NN+3 (levels 4-14).
+The seed picks N **distinct** families (own RNG domain `nwndgen/hench/1`, so nothing else moves) and the level index NN follows the recommended level:
+`NN = clamp(average of --min-level and --max-level - 3, 1, 11)`, so the minimum henchman level is 4. The choice is stored in the module's variables
+(`scel_hn`, `scel_h1`..), and `scel_enter` creates them next to the first player who enters the first area and joins them with `AddHenchman` once
+(it raises `SetMaxHenchmen` if needed). Only the first player gets them; later players in a multiplayer game do not. A roster with fewer families than `henchmen N` is an error.
+The summary prints a `Companions:` line and the manifest records `henchmen=`, `henchman.<n>=` and `hench_algorithm=hench/1`. `nwnpack roster-check` verifies each family
+(all eleven levels exist and have NN+3 class levels), `dgcheck` that the module's list matches the roster, is distinct and resolves in the install.
+Confirmed in game by the author: the henchmen join the first player, follow and fight. Not yet checked: the level band against a character above level 4, and multiplayer.
 
 ### End-of-run summary
 

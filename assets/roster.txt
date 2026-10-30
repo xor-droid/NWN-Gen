@@ -5,6 +5,13 @@ nwndgen-roster 1
 vault plc_chest1
 key nw_it_msmlmisc11
 relic nw_it_msmlmisc05
+# stock henchmen the recipe key "henchmen N" can pick from; "<prefix>_NN" is a level NN+3 character
+henchman nw_hen_dae
+henchman nw_hen_bod
+henchman nw_hen_gal
+henchman nw_hen_gri
+henchman nw_hen_lin
+henchman nw_hen_sha
 
 theme goblins Goblins
 gold 8

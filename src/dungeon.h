@@ -93,6 +93,8 @@ typedef struct {
     dungeon_area *area;
     size_t n;
     int has_spawn, theme;             /* roster in use and the theme picked for this seed */
+    char hench[6][17];                /* henchmen that join the first player (resrefs), chosen by spawn_plan */
+    int nhench;
     uint8_t *jrl;                     /* module.jrl when has_spawn */
     size_t njrl;
     uint8_t *ifo;                     /* edited module.ifo */

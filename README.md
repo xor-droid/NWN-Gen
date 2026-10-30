@@ -18,6 +18,7 @@ For each seed, `nwndgen --recipe` builds a module of linked areas (for example "
   creatures sized to the party's level and size. The boss in the last room holds a key to a plot-protected chest containing the relic.
   Small compiled scripts spawn everything when the first player enters each area and advance a three-step journal entry.
 * **Level-scaled loot (optional).** Creatures carry items and gold chosen from the seed by their challenge rating; the band's level raises gold.
+* **Henchmen (optional).** NWN1:EE cannot give one player several characters, so `henchmen N` adds N stock AI henchmen that join the first player, at the level the dungeon is built for. Confirmed in game by the author: they join, follow and fight.
 * **Less-empty rooms (optional).** Props, light sources, unlocked containers and a per-theme ambient colour; decorative floor tiles
   (`tilepack-rich`).
 * **Corridors with doors (optional).** Rooms joined by the stock 5 m corridor kit instead of wide strips, with plain closed,

@@ -73,7 +73,7 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     size_t pos = 0;
     int line = 0, seen_head = 0;
     unsigned have = 0; /* bitmask of single-use keys */
-    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096 };
+    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192 };
 
     memset(r, 0, sizeof *r);
     while (pos < len) {
@@ -136,6 +136,17 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             if (!strcmp(rest, "boss_only")) r->boss_only = 1;
             else if (!strcmp(rest, "loot_test")) r->loot_test = 1;
             else if (strcmp(rest, "full")) { set_err(err, "recipe line %d: spawn_mode must be full, boss_only or loot_test", line); return -1; }
+        } else if (!strcmp(buf, "henchmen")) {
+            char *end;
+            long v;
+            if (have & H_HENCH) { set_err(err, "recipe line %d: 'henchmen' given twice", line); return -1; }
+            have |= H_HENCH;
+            v = strtol(rest, &end, 10);
+            if (end == rest || *end || v < 0 || v > RECIPE_HENCH_MAX) {
+                set_err(err, "recipe line %d: henchmen must be a whole number 0-%d", line, RECIPE_HENCH_MAX);
+                return -1;
+            }
+            r->henchmen = (int)v;
         } else if (!strcmp(buf, "template_door")) {
             if (have & H_DOOR_T) { set_err(err, "recipe line %d: 'template_door' given twice", line); return -1; }
             have |= H_DOOR_T;
@@ -242,6 +253,10 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     }
     if (r->doors && !r->kit_corridors) {
         set_err(err, "recipe: doors plain needs corridors kit (doors only exist in the corridor kit)");
+        return -1;
+    }
+    if (r->henchmen && !(have & H_ROSTER)) {
+        set_err(err, "recipe: henchmen needs roster and scripts");
         return -1;
     }
     if ((r->boss_only || r->loot_test) && !(have & H_ROSTER)) {

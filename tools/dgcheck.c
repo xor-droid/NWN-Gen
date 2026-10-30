@@ -547,6 +547,50 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         if (vault && strcmp(vault->bp, ro->vault)) BAD("vault marker %s != roster vault %s", vault->bp, ro->vault);
         if (relic && strcmp(relic->bp, ro->relic)) BAD("relic marker %s != roster relic %s", relic->bp, ro->relic);
     }
+    /* henchmen: module variables scel_hn / scel_h1.. name stock henchman blueprints (<roster family>_NN, level NN+3) */
+    {
+        const char *sv = NULL;
+        int64_t iv = 0, nh = 0;
+        int hk, ty = var_get(ifo->root, "scel_hn", &sv, &iv);
+        if (ty) {
+            nh = iv;
+            if (ty != 1 || nh < 1 || nh > 5) BAD("scel_hn must be an int 1-5 (got %lld)", (long long)nh);
+            else {
+                for (hk = 1; hk <= (int)nh; hk++) {
+                    char hnm[24];
+                    const char *bp;
+                    int hj, fam = 0, d1, d2;
+                    snprintf(hnm, sizeof hnm, "scel_h%d", hk);
+                    ty = var_get(ifo->root, hnm, &sv, &iv);
+                    if (ty != 3 || !sv || !resref_ok(sv)) { BAD("%s is missing or not a resref string", hnm); continue; }
+                    bp = sv;
+                    d1 = bp[strlen(bp) - 2] - '0';
+                    d2 = bp[strlen(bp) - 1] - '0';
+                    if (strlen(bp) < 4 || bp[strlen(bp) - 3] != '_' || d1 < 0 || d1 > 9 || d2 < 0 || d2 > 9 || d1 * 10 + d2 < 1 || d1 * 10 + d2 > 11)
+                        BAD("henchman %s does not end in _01 .. _11", bp);
+                    for (hj = 0; ro && hj < hk - 1; hj++) {
+                        snprintf(hnm, sizeof hnm, "scel_h%d", hj + 1);
+                        if (var_get(ifo->root, hnm, &sv, &iv) == 3 && !strcmp(sv, bp)) BAD("henchman %s listed twice", bp);
+                    }
+                    if (ro) {
+                        size_t hq;
+                        for (hq = 0; hq < ro->nhench; hq++)
+                            if (!strncmp(bp, ro->hench[hq], strlen(ro->hench[hq])) && strlen(bp) == strlen(ro->hench[hq]) + 3) fam = 1;
+                        if (!fam) BAD("henchman %s is not from a family in the roster", bp);
+                    }
+                    if (rm) {
+                        uint8_t *ub;
+                        size_t ul;
+                        char e3[ERRLEN];
+                        if (resman_get(rm, bp, 2027, &ub, &ul, e3) != 0) BAD("henchman %s does not resolve in the install", bp);
+                        else free(ub);
+                    }
+                }
+                printf("henchmen: %d\n", (int)nh);
+            }
+            if (!acq || strcmp(acq, "scel_acquire")) BAD("henchmen are set but the module has no spawn scripts");
+        }
+    }
     /* install: every blueprint resolves */
     if (rm)
         for (i = 0; i < nm; i++) {

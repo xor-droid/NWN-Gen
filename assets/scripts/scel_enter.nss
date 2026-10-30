@@ -12,8 +12,33 @@
 // objects while walking the area's object list can make the walk revisit the same waypoint (TMI).
 // Pass 1 creates creatures, boss and vault; pass 2 fills them, so marker order is irrelevant.
 // Quest ID "scel_main": entry 1 on the first area entry.
+// Henchmen (recipe key henchmen N): the generator stores the count in the module variable scel_hn and the stock henchman
+// blueprints in scel_h1..scel_hN; the first PC to enter gets them as companions (AddHenchman), once.
 
 int MAX_MARKERS = 128;
+
+// The first PC to enter takes the generator's henchmen along. Stock henchmen follow, fight and can be spoken to as usual.
+void JoinHenchmen(object oPC)
+{
+    object oMod = GetModule();
+    int nCount = GetLocalInt(oMod, "scel_hn");
+    int i;
+    if (nCount < 1 || GetLocalInt(oMod, "scel_hdone"))
+        return;
+    SetLocalInt(oMod, "scel_hdone", TRUE);
+    if (GetMaxHenchmen() < nCount)
+        SetMaxHenchmen(nCount);
+    for (i = 1; i <= nCount; i++)
+    {
+        string sRes = GetLocalString(oMod, "scel_h" + IntToString(i));
+        object oHen;
+        if (sRes == "")
+            continue;
+        oHen = CreateObject(OBJECT_TYPE_CREATURE, sRes, GetLocation(oPC));
+        if (GetIsObjectValid(oHen))
+            AddHenchman(oPC, oHen);
+    }
+}
 
 // Items and gold the generator assigned to marker n. Droppable, so they land in the corpse loot like the key does.
 void GiveSpawnLoot(object oCreature, object oArea, int n)
@@ -67,6 +92,7 @@ void main()
         SetLocalInt(oMod, "scel_j", TRUE);
         AddJournalQuestEntry("scel_main", 1, oPC);
     }
+    JoinHenchmen(oPC);
     // Set the flag before spawning so nothing can re-enter.
     if (GetLocalInt(oArea, "scel_done"))
         return;

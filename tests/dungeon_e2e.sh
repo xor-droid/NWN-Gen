@@ -325,5 +325,32 @@ done
 { cat "$FX/recipe_test.txt"; echo "spawn_mode loot_test"; } > "$FX/r_ltnoroster.txt"
 badruns "loot_test without roster" --recipe "$FX/r_ltnoroster.txt"
 
+# --- henchmen: the first player gets stock henchmen from the roster's families -----------------------
+cp "$HERE/data/roster_hench_test.txt" "$FX/"
+{ cat "$FX/recipe_test.txt"; echo "roster roster_hench_test.txt"; echo "scripts scripts"; echo "henchmen 2"; } > "$FX/recipe_hench.txt"
+mkdir -p "$T/h"
+for seed in 1 2 3 12345; do
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_hench.txt" --seed $seed --min-level 3 --max-level 4 --output "$T/h/h$seed.mod" --manifest "$T/h/h$seed.txt" >"$T/h/out$seed.txt" || { bad "henchmen generate seed $seed"; continue; }
+  grep -q '^henchmen=2$' "$T/h/h$seed.txt" && grep -q '^hench_algorithm=hench/1$' "$T/h/h$seed.txt" && grep -q '^henchman.2=t_hen_._01$' "$T/h/h$seed.txt" && ok || bad "henchmen manifest seed $seed: $(grep hench "$T/h/h$seed.txt")"
+  grep -q '^  Companions: 2 stock henchmen join the first player: t_hen_._01, t_hen_._01$' "$T/h/out$seed.txt" && ok || bad "henchmen summary seed $seed"
+  "$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_hench_test.txt" "$T/h/h$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck henchmen seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+  grep -q '^henchmen: 2$' "$T/dg.txt" && ok || bad "dgcheck henchmen line seed $seed"
+done
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_hench.txt" --seed 1 --min-level 3 --max-level 4 --output "$T/h/again.mod" >/dev/null && cmp -s "$T/h/h1.mod" "$T/h/again.mod" && ok || bad "henchmen build is not reproducible"
+# negative proof: checked against a roster that lacks those families, dgcheck must object
+"$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_loot_test.txt" "$T/h/h1.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted henchmen outside the roster" || { grep -q 'not from a family in the roster' "$T/dg.txt" && ok || bad "dgcheck henchman message"; }
+# a roster module without the key carries no henchman data
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_loot.txt" --seed 1 --output "$T/h/none.mod" --manifest "$T/h/none.txt" >/dev/null && ! grep -q hench "$T/h/none.txt" && ok || bad "henchmen appear without the recipe key"
+{ cat "$FX/recipe_test.txt"; echo "henchmen 1"; } > "$FX/r_hnoroster.txt"
+badruns "henchmen without roster" --recipe "$FX/r_hnoroster.txt"
+{ cat "$FX/recipe_hench.txt"; echo "henchmen 1"; } > "$FX/r_hdup.txt"
+badruns "henchmen given twice" --recipe "$FX/r_hdup.txt"
+sed 's/^henchmen 2/henchmen 6/' "$FX/recipe_hench.txt" > "$FX/r_h6.txt"
+badruns "henchmen above 5" --recipe "$FX/r_h6.txt"
+sed 's/^henchmen 2/henchmen two/' "$FX/recipe_hench.txt" > "$FX/r_hx.txt"
+badruns "henchmen not a number" --recipe "$FX/r_hx.txt"
+sed 's/^henchmen 2/henchmen 4/' "$FX/recipe_hench.txt" > "$FX/r_h4.txt"
+badruns "more henchmen than roster families" --recipe "$FX/r_h4.txt"
+
 echo "dungeon e2e: $pass passed, $fail failed"
 [ $fail -eq 0 ]

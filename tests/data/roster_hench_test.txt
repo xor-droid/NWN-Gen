@@ -1,0 +1,34 @@
+nwndgen-roster 1
+# Synthetic roster for the tests: the blueprint names do not exist in any game.
+vault t_vault
+key t_key
+relic t_relic
+henchman t_hen_a
+henchman t_hen_b
+henchman t_hen_c
+
+theme alpha Alpha Raiders
+minion t_a_min1 0.25
+minion t_a_min2 0.5
+standard t_a_std 1
+elite t_a_elite 2
+boss t_a_boss 2
+boss t_a_boss3 3
+prop t_a_p1 3
+prop t_a_p2 1
+light t_a_l1 2
+container t_a_x1 1
+ambience 102030 a0b0c0 ff0000 7 60
+gold 10
+loot t_l_low 100 0.00 0.60
+loot t_l_mid 100 1.00 2.00
+loot t_l_hi 50 3.00 9.00
+
+theme beta The Beta Horde
+minion t_b_min 0.33
+standard t_b_std 1.5
+boss t_b_boss 1.5
+prop t_b_p1 1
+light t_b_l1 1
+container t_b_x1 5
+container t_b_x2 1

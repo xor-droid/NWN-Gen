@@ -8,6 +8,7 @@
 
 #define SPAWN_ALGORITHM_VERSION "spawn/2"
 #define LOOT_ALGORITHM_VERSION "loot/1" /* carried items and gold per creature, see plan_loot */
+#define HENCH_ALGORITHM_VERSION "hench/1" /* which stock henchmen join the first player, see spawn_plan */
 #define SPAWN_AREA_MAX 24 /* creatures per area, boss excluded */
 #define SPAWN_PT_MAX 64   /* markers per area: creatures, objective, scenery */
 

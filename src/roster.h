@@ -1,7 +1,8 @@
 /* Creature roster and quest text for generated dungeons.
  *
  *   nwndgen-roster 1
- *   vault <utp resref>              locked chest that holds the relic
+  *   henchman <prefix>              a stock henchman family (optional, up to 6): "<prefix>_NN" must exist for NN 01-11, level NN+3
+*   vault <utp resref>              locked chest that holds the relic
  *   key <uti resref>                item the boss carries; opens the vault
  *   relic <uti resref>              the objective item
  *   theme <id> <display name...>    starts a theme; the role lines below belong to it
@@ -50,10 +51,12 @@ typedef struct {
     roster_theme theme[ROSTER_THEMES];
     size_t ntheme;
     char vault[17], key[17], relic[17];
+    char hench[6][14];             /* henchman family prefixes, see henchman above */
+    size_t nhench;
 } roster;
 
 /* Inputs the spawn planner needs besides the roster. */
-typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test; } spawn_cfg;
+typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen; } spawn_cfg;
 
 /* A spawn marker: kind is one of C (creature) B (boss) T (boss with 1 hit point, boss_only runs) V (vault)
  * K (key item) R (relic item) D (decor prop) L (light) X (lootable container). */

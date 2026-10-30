@@ -12,6 +12,7 @@
  *   roster <file>                        (optional) creature roster, see roster.h; needs scripts
  *   scripts <dir>                        (optional) directory holding scel_enter/scel_acquire .nss/.ncs
  *   spawn_mode full|boss_only|loot_test  (optional) boss_only = just the boss, with 1 hit point; loot_test = five weak creatures + weak boss, all in the first area
+ *   henchmen N                           (optional, 0-5, default 0) N stock henchmen from the roster join the first player
  *   template_door tpl_door.git           (optional) donor GIT with one stock door; needed by doors plain
  *   corridors wide|kit                  (optional) kit = stock corridor-kit pieces (needs a tilepack with kit records)
  *   doors none|plain                    (optional) plain = a closed, unlocked door in each kit corridor; needs corridors kit
@@ -29,6 +30,8 @@
 #define RECIPE_ROOMS_MIN 2
 #define RECIPE_ROOMS_MAX 8
 
+#define RECIPE_HENCH_MAX 5
+
 typedef struct {
     char resref[17];
     unsigned w, h, rooms;
@@ -41,6 +44,7 @@ typedef struct {
     char roster[RECIPE_PATH_MAX], scripts[RECIPE_PATH_MAX]; /* both empty = no creatures or objective */
     int boss_only; /* spawn_mode boss_only: no minions, the boss has 1 hit point (quick test runs) */
     int loot_test;     /* spawn_mode loot_test: five creatures and the boss, all in the first area, 1 hit point and unarmed (loot checks) */
+    int henchmen;      /* henchmen N: stock henchmen from the roster that join the first player (needs roster and scripts) */
     int kit_corridors; /* corridors kit: narrow stock corridor pieces instead of full-floor 10 m corridors */
     int doors;         /* doors plain: one closed, unlocked stock door in each kit corridor (needs corridors kit) */
     char module_name[128], module_tag[33], module_desc[512];

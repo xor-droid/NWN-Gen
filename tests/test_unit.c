@@ -1348,6 +1348,83 @@ static int unit_theme_cr(const roster_theme *t, const char *bp)
     return -1;
 }
 
+static void test_hench(void)
+{
+    size_t n, rn, hn, i;
+    char *tp_text = slurp("tests/data/tilepack_test.txt", &n), *rtext = slurp("tests/data/recipe_test.txt", &rn),
+         *htext = slurp("tests/data/roster_hench_test.txt", &hn);
+    tilepack tp;
+    recipe r;
+    roster ro;
+    gff are, git, ifo;
+    dungeon a, b, c;
+    char err[ERRLEN] = "";
+    spawn_cfg sc = {0};
+    uint64_t seed;
+    static const char HEAD[] = "nwndgen-roster 1\nvault v\nkey k\nrelic r\n";
+    static const char TAIL[] = "theme a A\nminion m 1\nboss b 1\n";
+    char buf[512];
+
+    CHECK(tp_text && rtext && htext);
+    if (!tp_text || !rtext || !htext)
+        return;
+    CHECK(roster_parse(htext, hn, &ro, err) == 0 && ro.nhench == 3 && !strcmp(ro.hench[0], "t_hen_a") && !strcmp(ro.hench[2], "t_hen_c"));
+#define BAD_HEN(body, frag) \
+    do { snprintf(buf, sizeof buf, "%s%s%s", HEAD, body, TAIL); err[0] = 0; CHECK(parse_roster(buf, &ro, err) != 0 && strstr(err, frag)); } while (0)
+    BAD_HEN("henchman A\n", "prefix");
+    BAD_HEN("henchman abcdefghijklmn\n", "prefix"); /* 14 characters: <prefix>_NN would not fit a resref */
+    BAD_HEN("henchman a\nhenchman a\n", "duplicate");
+    BAD_HEN("henchman a\nhenchman b\nhenchman c\nhenchman d\nhenchman e\nhenchman f\nhenchman g\n", "too many");
+    snprintf(buf, sizeof buf, "%shenchman abcdefghijklm\n%s", HEAD, TAIL);
+    CHECK(parse_roster(buf, &ro, err) == 0);
+    CHECK(roster_parse(htext, hn, &ro, err) == 0);
+
+    CHECK(tilepack_parse(tp_text, n, &tp, err) == 0 && recipe_parse(rtext, rn, "tests/data", &r, err) == 0);
+    CHECK(fx_are(&are) == 0 && fx_git(&git) == 0 && fx_ifo(&ifo) == 0);
+    sc.ro = &ro;
+    for (seed = 1; seed <= 40; seed++) {
+        int want = 1 + (int)(seed % 3), nn;
+        sc.party = 1;
+        sc.min_level = 1 + (unsigned)(seed % 12);
+        sc.max_level = sc.min_level + (unsigned)(seed % 3);
+        sc.henchmen = want;
+        nn = (int)(sc.min_level + sc.max_level) / 2 - 3;
+        nn = nn < 1 ? 1 : nn > 11 ? 11 : nn;
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seed, &sc, &a, err) == 0);
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seed, &sc, &b, err) == 0);
+        sc.henchmen = 0;
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seed, &sc, &c, err) == 0);
+        CHECK(a.nhench == want && b.nhench == want && c.nhench == 0);
+        for (i = 0; i < (size_t)a.nhench; i++) {
+            char exp[24];
+            size_t j, fam = 99, f;
+            CHECK(!strcmp(a.hench[i], b.hench[i])); /* deterministic */
+            for (f = 0; f < ro.nhench; f++)
+                if (!strncmp(a.hench[i], ro.hench[f], strlen(ro.hench[f]))) fam = f;
+            CHECK(fam < ro.nhench);
+            snprintf(exp, sizeof exp, "%s_%02d", fam < ro.nhench ? ro.hench[fam] : "?", nn);
+            CHECK(!strcmp(a.hench[i], exp)); /* level index follows the recommended average */
+            for (j = 0; j < i; j++)
+                CHECK(strcmp(a.hench[i], a.hench[j])); /* distinct families */
+        }
+        /* the henchmen draw has its own RNG domain: nothing else moves */
+        CHECK(a.theme == c.theme && a.area[0].nsp == c.area[0].nsp && (a.area[0].nsp == 0 || !strcmp(a.area[0].sp[0].bp, c.area[0].sp[0].bp)));
+        dungeon_free(&a);
+        dungeon_free(&b);
+        dungeon_free(&c);
+    }
+    sc.min_level = sc.max_level = 3; /* more henchmen than the roster has families */
+    sc.henchmen = 4;
+    CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, 1, &sc, &a, err) != 0 && strstr(err, "henchman"));
+    gff_free(&are);
+    gff_free(&git);
+    gff_free(&ifo);
+    tilepack_free(&tp);
+    free(tp_text);
+    free(rtext);
+    free(htext);
+}
+
 static void test_loot_plan(void)
 {
     size_t n, rn, ln, dn, i, k;
@@ -1918,6 +1995,7 @@ int main(void)
     test_roster_deco();
     test_roster_loot();
     test_loot_plan();
+    test_hench();
     test_spawn();
     test_deco();
     test_tileset();

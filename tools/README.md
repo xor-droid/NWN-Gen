@@ -6,7 +6,7 @@ Build everything with `make`. All of it is POSIX C; none of it runs when you gen
 |---|---|
 | `build/nwnpack` | reads **your** NWN:EE install (`data/*.key`/`*.bif`, `data/mod`, `data/nwm`) and writes the inputs `nwndgen --recipe` needs. Nothing from the game is stored in this repository. |
 | `build/dgcheck` | independent validator for a built module: tile adjacency re-derived from the tileset's own `.set`, one connected floor region, objects on floor, transitions resolve, GIC mirrors GIT; with `--roster` also the creature, objective and scenery markers (floor, walkable ground at the marker position, one boss/key/vault/relic, scripts, journal, scenery from the chosen theme, floor still connected) |
-| `nwnpack roster-check FILE` | checks every roster blueprint and loot item against your install: creatures (exists, hostile faction, CR, event scripts) and scenery (props and lights inert, containers unlocked with an inventory) |
+| `nwnpack roster-check FILE` | checks every roster blueprint and loot item against your install: creatures (exists, hostile faction, CR, event scripts) and scenery (props and lights inert, containers unlocked with an inventory) and each `henchman` family (all eleven levels exist at NN+3 class levels) |
 | `build/dgdump` | prints layouts / tile ids / portal cells for a recipe + seed (compared with `tests/data/expected_*.txt`) |
 | `build/erfpack` | deterministic directory → ERF/MOD packer |
 | `build/erfcheck` | strict ERF round-trip check on real files |

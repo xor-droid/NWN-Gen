@@ -96,6 +96,16 @@ int roster_parse(const char *text, size_t len, roster *ro, char *err)
             if (!resref_ok(rest))
                 return bad(err, line, "resref must be 1-16 of a-z 0-9 _");
             strcpy(dst, rest);
+        } else if (!strcmp(buf, "henchman")) {
+            size_t i;
+            if (ro->nhench == 6)
+                return bad(err, line, "too many henchman lines (6 at most)");
+            if (!resref_ok(rest) || strlen(rest) > 13)
+                return bad(err, line, "henchman prefix must be 1-13 of a-z 0-9 _ (the family is <prefix>_NN)");
+            for (i = 0; i < ro->nhench; i++)
+                if (!strcmp(ro->hench[i], rest))
+                    return bad(err, line, "duplicate henchman prefix");
+            strcpy(ro->hench[ro->nhench++], rest);
         } else if (!strcmp(buf, "theme")) {
             size_t i;
             if (ro->ntheme == ROSTER_THEMES)
