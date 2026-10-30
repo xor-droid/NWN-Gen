@@ -6,7 +6,7 @@ CFLAGS  += -std=c11 -D_POSIX_C_SOURCE=200809L $(OPT) $(WARN) $(EXTRA)
 BUILD   ?= build
 
 LIBSRC  := src/util.c src/sha256.c src/prng.c src/erf.c src/config.c \
-           src/catalog.c src/plan.c src/game.c src/gff.c src/recipe.c src/roster.c src/spawn.c src/dungeon.c
+           src/catalog.c src/plan.c src/game.c src/gff.c src/recipe.c src/roster.c src/spawn.c src/dungeon.c src/summary.c
 PACKSRC := src/key.c src/tileset.c
 PACKOBJ := $(PACKSRC:src/%.c=$(BUILD)/%.o)
 LIBOBJ  := $(LIBSRC:src/%.c=$(BUILD)/%.o)

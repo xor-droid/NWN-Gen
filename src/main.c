@@ -15,6 +15,7 @@
 #include "recipe.h"
 #include "roster.h"
 #include "spawn.h"
+#include "summary.h"
 #include "sha256.h"
 #include "util.h"
 
@@ -74,6 +75,27 @@ static char *dir_of(const char *path)
     memcpy(d, path, n);
     d[n] = '\0';
     return d;
+}
+
+/* print a path single-quoted when the shell would split or expand it */
+static void print_arg(const char *s)
+{
+    const char *p;
+    int plain = *s != '\0';
+    for (p = s; *p; p++)
+        plain &= (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') || (*p >= '0' && *p <= '9') || strchr("._-/+=,:@", *p) != NULL;
+    if (plain) {
+        fputs(s, stdout);
+        return;
+    }
+    putchar('\'');
+    for (p = s; *p; p++) {
+        if (*p == '\'')
+            fputs("'\\''", stdout);
+        else
+            putchar(*p);
+    }
+    putchar('\'');
 }
 
 static void append(char **buf, size_t *len, size_t *cap, const char *fmt, ...)
@@ -554,9 +576,27 @@ int main(int argc, char **argv)
         for (s = 0; !val[O_RECIPE] && s < pl.nslots; s++)
             printf("  %s: %s\n", cat.rows[pl.chosen[s]].slot,
                    cat.rows[pl.chosen[s]].variant);
-        for (s = 0; val[O_RECIPE] && s < rc_ctx.d.n; s++)
-            printf("  area %s: %dx%d, %d rooms\n", rc_ctx.d.area[s].resref, rc_ctx.d.area[s].lay.w,
-                   rc_ctx.d.area[s].lay.h, rc_ctx.d.area[s].lay.nrooms);
+        if (val[O_RECIPE]) {
+            char *sum = dungeon_summary(&rc_ctx.r, &rc_ctx.d, rc_ctx.d.has_spawn ? &rc_ctx.ro : NULL, &cfg);
+            if (sum)
+                fputs(sum, stdout);
+            free(sum);
+            printf("\n  Reproduce:  nwndgen --game nwn1 --base ");
+            print_arg(val[O_BASE]);
+            printf(" --recipe ");
+            print_arg(val[O_RECIPE]);
+            printf(" --seed %llu --party-size %u --min-level %u --max-level %u --output ", (unsigned long long)cfg.seed, (unsigned)cfg.party_size,
+                   (unsigned)cfg.min_level, (unsigned)cfg.max_level);
+            print_arg(val[O_OUTPUT]);
+            printf("\n              (add --force to overwrite; same working directory and same recipe, tile pack, template, roster and script files give the same bytes)\n");
+            {
+                uint8_t osha2[32];
+                char oh2[65];
+                sha256(obuf, olen, osha2);
+                hex_encode(osha2, 32, oh2);
+                printf("  Output SHA-256: %s\n", oh2);
+            }
+        }
     }
     rc = 0;
 done:

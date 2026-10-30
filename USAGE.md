@@ -191,6 +191,16 @@ with `make scripts NWN_ROOT=... NWN_USERDIR=...` (official `nwn_script_comp`) af
 The manifest records the roster and script hashes, the chosen theme and per-area marker counts.
 **Generated and validated, not playable until loaded in the game.**
 
+
+### End-of-run summary
+
+A successful `--recipe` run prints a description of what it built after the `wrote` line: the character levels and party size it was built for
+(your `--min-level/--max-level/--party-size`; the CR caps and area budgets are scaled to them), the recipe's supported band, the number of
+levels (areas), rooms, doors and corridor style, the theme, and per level: size, rooms, door count, creatures with their CR total and how many
+stand in each room, and scenery counts. Then the creature types with role, CR and count, total CR, the CR limits used, the boss and the
+objective chain (boss, vault, relic), lootable containers and decor, then the command line that reproduces the module and the SHA-256 of the output. It is printed only; the manifest keeps the machine-readable record.
+All figures are the generator's heuristics, not playtested balance.
+
 #### Scenery and area light (same `roster`, so no new recipe key)
 
 Rosters may also give each theme scenery and an area light; a roster without those lines behaves exactly as before.

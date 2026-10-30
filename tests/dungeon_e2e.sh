@@ -270,5 +270,17 @@ sed 's/^area ka 14 14 3 Kit A/area ka 7 7 5 Kit A/' "$FX/recipe_kit.txt" > "$FX/
 badrun "kit area too small for its rooms" --recipe "$FX/r_kitcramped.txt"
 grep -q "larger area" "$T/err.txt" && ok || bad "kit cramped error message"
 
+
+# --- end-of-run summary ----------------------------------------------------------------------------
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_deco.txt" --seed 2 --party-size 3 --min-level 2 --max-level 3 --output "$T/k/sum.mod" --force > "$T/sum.txt" 2>&1 || bad "summary run"
+grep -q "Built for:  character levels 2-3, party of 3" "$T/sum.txt" && ok || bad "summary: level/party line"
+grep -q "Levels:     3 areas" "$T/sum.txt" && grep -q "Level 3: " "$T/sum.txt" && ok || bad "summary: levels"
+grep -q "per room (1..n):" "$T/sum.txt" && grep -q "^  Creatures (" "$T/sum.txt" && grep -q "^  Objective:" "$T/sum.txt" && ok || bad "summary: creatures/objective"
+grep -q "^  Reproduce:  nwndgen --game nwn1 --base .* --seed 2 --party-size 3 --min-level 2 --max-level 3 --output " "$T/sum.txt" && ok || bad "summary: reproduce command"
+r=$(sed -n 's/^  Output SHA-256: //p' "$T/sum.txt"); [ "${#r}" -eq 64 ] && ok || bad "summary: output hash"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_deco.txt" --seed 2 --party-size 3 --min-level 2 --max-level 3 --output "$T/k/sum_again.mod" --manifest "$T/k/sum_again.txt" >/dev/null && grep -q "^output_sha256=$r" "$T/k/sum_again.txt" && ok || bad "reproduce command does not reproduce the printed hash"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_test.txt" --seed 2 --output "$T/k/sum2.mod" --force > "$T/sum2.txt" 2>&1 || bad "summary run (no roster)"
+grep -q "Theme:      none" "$T/sum2.txt" && ! grep -q "Creatures (" "$T/sum2.txt" && ok || bad "summary without a roster"
+
 echo "dungeon e2e: $pass passed, $fail failed"
 [ $fail -eq 0 ]
