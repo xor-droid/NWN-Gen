@@ -53,7 +53,7 @@ typedef struct {
 } roster;
 
 /* Inputs the spawn planner needs besides the roster. */
-typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only; } spawn_cfg;
+typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test; } spawn_cfg;
 
 /* A spawn marker: kind is one of C (creature) B (boss) T (boss with 1 hit point, boss_only runs) V (vault)
  * K (key item) R (relic item) D (decor prop) L (light) X (lootable container). */
@@ -61,6 +61,7 @@ typedef struct {
     char kind; char bp[17]; int cx, cy, face; int ox, oy; /* tile corner offset: -1, 0 or 1 (3.5 m) */
     char loot[2][17];   /* items a creature or boss carries (empty = none), see loot in the roster */
     int gold;           /* gold pieces it carries */
+    int weak;           /* loot_test: the script gives it 1 hit point and takes its weapons */
 } spawn_pt;
 
 int roster_parse(const char *text, size_t len, roster *ro, char *err);

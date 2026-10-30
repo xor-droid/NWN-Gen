@@ -2,7 +2,7 @@
 
 `nwndgen --recipe` generates fresh layouts per seed (see `USAGE.md` and `tools/README.md`). With the shipped `assets/roster.txt` and
 `assets/scripts/` it also places creatures, a boss with a key, a vault and a relic, scenery, and a journal chain. Creatures, objective and
-journal were confirmed working in game by the author; the corridor kit and doors are built but not yet game-tested.
+journal were confirmed working in game by the author; the corridor kit and its doors were also played in game and work.
 
 What this repository ships: `roster.txt` (three themes: goblins, kobolds, undead, using stock NWN blueprints by resref only) and
 `scripts/` (`scel_enter`, `scel_acquire` as `.nss` source plus compiled `.ncs`). No game data is included; tile packs and templates are

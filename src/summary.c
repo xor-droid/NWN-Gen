@@ -70,7 +70,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     size_t nl2 = 0;
     char bossloot[2][17] = {"", ""};
     char bossbp[17] = "";
-    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only};
+    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test};
 
     put(&b, "\n%s (seed %llu)\n", r->module_name, (unsigned long long)cfg->seed);
     if (cfg->min_level == cfg->max_level)
@@ -86,7 +86,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     put(&b, "  Levels:     %zu areas, %zu rooms, %zu %s, %s corridors\n", d->n, nrooms, ndoors, plural((long)ndoors, "door", "doors"),
         r->kit_corridors ? "stock kit" : "wide");
     if (th)
-        put(&b, "  Theme:      %s%s\n", th->name, r->boss_only ? " (boss_only test mode: no regular creatures, boss has 1 hit point)" : "");
+        put(&b, "  Theme:      %s%s\n", th->name, r->boss_only ? " (boss_only test mode: no regular creatures, boss has 1 hit point)" : r->loot_test ? " (loot_test mode: five creatures and the boss, all on level 1 with 1 hit point and unarmed)" : "");
     else
         put(&b, "  Theme:      none (geometry only: no roster, creatures or objective)\n");
 
@@ -96,7 +96,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
         for (k = 0; k < ar->nsp; k++) {
             const spawn_pt *p = &ar->sp[k];
             int ri, cr = 0, role = -1, isboss = p->kind != 'C';
-            if (p->kind == 'C' || p->kind == 'B') {
+            if (p->kind == 'C' || p->kind == 'B' || p->kind == 'T') {
                 int q;
                 for (q = 0; q < 2; q++) {
                     size_t z;
@@ -112,11 +112,11 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
                     }
                     if (z < nl2)
                         loot[z].n++;
-                    if (p->kind == 'B')
+                    if (p->kind != 'C')
                         snprintf(bossloot[q], sizeof bossloot[q], "%s", p->loot[q]);
                 }
                 gold_total += p->gold;
-                if (p->kind == 'B')
+                if (p->kind != 'C')
                     boss_gold = p->gold;
             }
             if (p->kind == 'D') nd++;

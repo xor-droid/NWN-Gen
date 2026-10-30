@@ -7,6 +7,7 @@
 // A creature or boss marker may carry local variables set by the generator: scel_loot / scel_loot2 (item blueprints the
 // creature carries) and scel_gold (gold pieces). Their presence turns off the stock random monster treasure (X2_L_NOTREASURE
 // on the module, set before anything is created because the stock OnSpawn script rolls it inside CreateObject).
+// A marker with scel_weak (spawn_mode loot_test) makes its creature a pushover: 1 hit point and no weapons.
 // The markers are copied into local variables first and objects are created afterwards, because creating
 // objects while walking the area's object list can make the walk revisit the same waypoint (TMI).
 // Pass 1 creates creatures, boss and vault; pass 2 fills them, so marker order is irrelevant.
@@ -20,9 +21,16 @@ void GiveSpawnLoot(object oCreature, object oArea, int n)
     string sA = GetLocalString(oArea, "scel_a" + IntToString(n));
     string sB = GetLocalString(oArea, "scel_b" + IntToString(n));
     int nGold = GetLocalInt(oArea, "scel_g" + IntToString(n));
+    int nWeak = GetLocalInt(oArea, "scel_w" + IntToString(n));
     object oItem;
     if (!GetIsObjectValid(oCreature))
         return;
+    if (nWeak)
+    {
+        SetCurrentHitPoints(oCreature, 1);
+        DestroyObject(GetItemInSlot(INVENTORY_SLOT_RIGHTHAND, oCreature));
+        DestroyObject(GetItemInSlot(INVENTORY_SLOT_LEFTHAND, oCreature));
+    }
     if (sA != "")
     {
         oItem = CreateItemOnObject(sA, oCreature);
@@ -77,6 +85,7 @@ void main()
             SetLocalString(oArea, "scel_a" + IntToString(nMark), GetLocalString(o, "scel_loot"));
             SetLocalString(oArea, "scel_b" + IntToString(nMark), GetLocalString(o, "scel_loot2"));
             SetLocalInt(oArea, "scel_g" + IntToString(nMark), GetLocalInt(o, "scel_gold"));
+            SetLocalInt(oArea, "scel_w" + IntToString(nMark), GetLocalInt(o, "scel_weak"));
             if (GetLocalString(o, "scel_loot") != "" || GetLocalInt(o, "scel_gold") > 0)
                 bLoot = TRUE;
             nMark++;

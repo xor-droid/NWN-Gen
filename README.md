@@ -20,16 +20,16 @@ For each seed, `nwndgen --recipe` builds a module of linked areas (for example "
 * **Level-scaled loot (optional).** Creatures carry items and gold chosen from the seed by their challenge rating; the band's level raises gold.
 * **Less-empty rooms (optional).** Props, light sources, unlocked containers and a per-theme ambient colour; decorative floor tiles
   (`tilepack-rich`).
-* **Corridors with doors (optional, newest).** Rooms joined by the stock 5 m corridor kit instead of wide strips, with plain closed,
+* **Corridors with doors (optional).** Rooms joined by the stock 5 m corridor kit instead of wide strips, with plain closed,
   unlocked doors in the corridors (`corridors kit`, `doors plain`).
 * **Determinism.** Output depends only on the seed, party size, level band and the input files, not on the machine, locale, time zone or
   working directory. Archives are written canonically so the bytes are stable.
 
 ## Status, stated plainly
 
-* Confirmed in the game by the author: the generated modules load, and the creatures, key, vault, relic and journal chain work; the
+* Confirmed in the game by the author: the generated modules load, and the creatures, key, vault, relic, journal chain and level-scaled loot drops, and the stock corridor kit with its doors work; the
   scenery and rich-floor modules also load.
-* **Not yet game-tested:** the corridor kit and doors (just built), game balance, and several earlier builds' play-through reports.
+* **Not yet game-tested:** game balance, and several earlier builds' play-through reports.
   Automated checks pass, but the validator is not the game. Please report what you see.
 * Balance numbers are heuristics, not playtested. NWN1 only for generated dungeons (`--game nwn2` supports only the older room-swap mode).
 

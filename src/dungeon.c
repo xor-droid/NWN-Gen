@@ -844,7 +844,8 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
         if (!w)
             return -1;
         if ((p->loot[0][0] && add_var(w, "scel_loot", 1, p->loot[0], 0, err)) || (p->loot[1][0] && add_var(w, "scel_loot2", 1, p->loot[1], 0, err)) ||
-            (p->gold && add_var(w, "scel_gold", 0, NULL, p->gold, err))) {
+            (p->gold && add_var(w, "scel_gold", 0, NULL, p->gold, err)) ||
+            (p->weak && add_var(w, "scel_weak", 0, NULL, 1, err))) {
             gff_struct_free(w);
             return -1;
         }

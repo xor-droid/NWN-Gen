@@ -289,6 +289,7 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.min_level = cfg->min_level;
         sc.max_level = cfg->max_level;
         sc.boss_only = c->r.boss_only;
+        sc.loot_test = c->r.loot_test;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -513,7 +514,7 @@ int main(int argc, char **argv)
                 hex_encode(c->ysha, 32, vh);
                 append(&manifest, &mlen, &mcap, "roster_sha256=%s\n", vh);
                 append(&manifest, &mlen, &mcap, "theme=%s\n", c->ro.theme[c->d.theme].id);
-                append(&manifest, &mlen, &mcap, "spawn_mode=%s\n", c->r.boss_only ? "boss_only" : "full");
+                append(&manifest, &mlen, &mcap, "spawn_mode=%s\n", c->r.boss_only ? "boss_only" : c->r.loot_test ? "loot_test" : "full");
                 for (k = 0; k < N_SCRIPT_FILES; k++) {
                     hex_encode(c->ssha[k], 32, vh);
                     append(&manifest, &mlen, &mcap, "script.%s.%s_sha256=%s\n", SCRIPT_FILES[k].name,

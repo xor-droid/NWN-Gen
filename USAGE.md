@@ -126,7 +126,7 @@ exactly the same module as before. Kit builds record `dungeon_algorithm=dungeon-
 `template_door_sha256=` and `doors.<area>=N` in the manifest; the door choice has its own RNG stream
 (`SHA-256("nwndgen/doors/1\0" || ...)`), so it never reshuffles layouts. Rooms need more space than with wide corridors: use at
 least 14x14 for 3 rooms and 16x16 for 4 (a cramped area is a clean error that says to use a larger one). Sweeping 300 seeds of a
-14/14/16 recipe never failed to lay out. **How these corridors and doors look and behave in game is unseen until loaded.**
+14/14/16 recipe never failed to lay out. The corridors and doors have been played in game by the author and work.
 
 ### Creatures and an objective (optional: `roster` + `scripts`)
 
@@ -168,6 +168,10 @@ What a generated module contains with them:
 Optional `spawn_mode boss_only` in the recipe (default `full`) is for quick test runs: no minions at all, and the
 boss (marker `SPT_`) is set to 1 hit point by the script, so the key/vault/relic chain can be exercised in a minute.
 The manifest records `spawn_mode=`. `dgcheck` reports such a module as test mode.
+
+`spawn_mode loot_test` is for checking drops quickly: exactly five creatures (ignoring the CR budget) and the boss, all in the first area, and the script gives every one of
+them 1 hit point and takes their weapons (right and left hand), so they die in one blow and cannot fight back. Scenery, the key, the vault and the loot lines work as in full
+mode; the manifest records `spawn_mode=loot_test`. Like `boss_only`, it needs `roster` and `scripts`.
 
 Roster format (`#` comments):
 

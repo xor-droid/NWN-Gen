@@ -134,7 +134,8 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             if (have & H_MODE) { set_err(err, "recipe line %d: 'spawn_mode' given twice", line); return -1; }
             have |= H_MODE;
             if (!strcmp(rest, "boss_only")) r->boss_only = 1;
-            else if (strcmp(rest, "full")) { set_err(err, "recipe line %d: spawn_mode must be full or boss_only", line); return -1; }
+            else if (!strcmp(rest, "loot_test")) r->loot_test = 1;
+            else if (strcmp(rest, "full")) { set_err(err, "recipe line %d: spawn_mode must be full, boss_only or loot_test", line); return -1; }
         } else if (!strcmp(buf, "template_door")) {
             if (have & H_DOOR_T) { set_err(err, "recipe line %d: 'template_door' given twice", line); return -1; }
             have |= H_DOOR_T;
@@ -243,8 +244,8 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
         set_err(err, "recipe: doors plain needs corridors kit (doors only exist in the corridor kit)");
         return -1;
     }
-    if (r->boss_only && !(have & H_ROSTER)) {
-        set_err(err, "recipe: spawn_mode boss_only needs roster and scripts");
+    if ((r->boss_only || r->loot_test) && !(have & H_ROSTER)) {
+        set_err(err, "recipe: spawn_mode boss_only and loot_test need roster and scripts");
         return -1;
     }
     return 0;

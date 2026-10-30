@@ -11,7 +11,7 @@
  *   area <resref> <W> <H> <rooms> <display name...>      (one per area, chained in order)
  *   roster <file>                        (optional) creature roster, see roster.h; needs scripts
  *   scripts <dir>                        (optional) directory holding scel_enter/scel_acquire .nss/.ncs
- *   spawn_mode full|boss_only            (optional) boss_only = just the boss, with 1 hit point
+ *   spawn_mode full|boss_only|loot_test  (optional) boss_only = just the boss, with 1 hit point; loot_test = five weak creatures + weak boss, all in the first area
  *   template_door tpl_door.git           (optional) donor GIT with one stock door; needed by doors plain
  *   corridors wide|kit                  (optional) kit = stock corridor-kit pieces (needs a tilepack with kit records)
  *   doors none|plain                    (optional) plain = a closed, unlocked door in each kit corridor; needs corridors kit
@@ -40,6 +40,7 @@ typedef struct {
     char template_door[RECIPE_PATH_MAX]; /* GIT holding one stock door to clone; needed by doors plain */
     char roster[RECIPE_PATH_MAX], scripts[RECIPE_PATH_MAX]; /* both empty = no creatures or objective */
     int boss_only; /* spawn_mode boss_only: no minions, the boss has 1 hit point (quick test runs) */
+    int loot_test;     /* spawn_mode loot_test: five creatures and the boss, all in the first area, 1 hit point and unarmed (loot checks) */
     int kit_corridors; /* corridors kit: narrow stock corridor pieces instead of full-floor 10 m corridors */
     int doors;         /* doors plain: one closed, unlocked stock door in each kit corridor (needs corridors kit) */
     char module_name[128], module_tag[33], module_desc[512];

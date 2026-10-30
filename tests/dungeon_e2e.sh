@@ -313,5 +313,17 @@ checkfail "dgcheck rejects loot outside its CR range" "$BUILD/dgcheck" --set "$F
 sed '/^gold /d' "$FX/roster_loot_test.txt" > "$FX/roster_loot_nogold.txt"
 checkfail "dgcheck rejects gold the theme does not give" "$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_loot_nogold.txt" "$T/l/l$aseed.mod"
 
+
+# --- spawn_mode loot_test: five weak creatures and a weak boss, all in the first area -------------
+{ cat "$FX/recipe_loot.txt"; echo "spawn_mode loot_test"; } > "$FX/recipe_loottest.txt"
+for seed in 1 2 3 12345; do
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_loottest.txt" --seed $seed --output "$T/l/t$seed.mod" --manifest "$T/l/t$seed.txt" >/dev/null || { bad "loot_test generate seed $seed"; continue; }
+  grep -q '^spawn_mode=loot_test' "$T/l/t$seed.txt" && ok || bad "loot_test manifest seed $seed"
+  "$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_loot_test.txt" "$T/l/t$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck loot_test seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+  grep -q '^spawn: 5 creature marker' "$T/dg.txt" && grep -q '^spawn: test mode' "$T/dg.txt" && ok || bad "loot_test seed $seed: expected five creatures and a test-mode boss: $(grep '^spawn:' "$T/dg.txt")"
+done
+{ cat "$FX/recipe_test.txt"; echo "spawn_mode loot_test"; } > "$FX/r_ltnoroster.txt"
+badruns "loot_test without roster" --recipe "$FX/r_ltnoroster.txt"
+
 echo "dungeon e2e: $pass passed, $fail failed"
 [ $fail -eq 0 ]

@@ -44,7 +44,7 @@ sh tools/sweep_seeds.sh build out/recipe.txt out/base_module.mod "$NWN_ROOT" 1 3
 
 `nwnpack` output was checked against the earlier Python scripts: the tilepack is byte-identical, and modules built
 from the C-made and the Python-made templates are semantically identical in all 11 resources. Modules from
-`nwndgen --recipe` (300 seeds × 3 areas) pass `dgcheck`. The plain-corridor modules with creatures and the objective have been loaded and played by the author; the rich floors load; the corridor kit and doors are not yet game-tested.
+`nwndgen --recipe` (300 seeds × 3 areas) pass `dgcheck`. The plain-corridor modules with creatures and the objective have been loaded and played by the author; the rich floors load; the corridor kit and its doors have also been played and work.
 
 ## Richer floors (`tilepack-rich`, opt-in)
 

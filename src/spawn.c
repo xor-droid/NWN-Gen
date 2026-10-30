@@ -62,6 +62,7 @@ static void put(dungeon_area *a, char kind, const char *bp, int cx, int cy, int 
     p->ox = p->oy = 0;
     memset(p->loot, 0, sizeof p->loot);
     p->gold = 0;
+    p->weak = 0;
 }
 
 /* Boss in the middle of the last room of the last area, vault chest on a free neighbouring cell. */
@@ -414,7 +415,7 @@ static void plan_loot(dungeon_area *a, const roster_theme *t, uint64_t seed, con
     sm64_seed(&rng, domain_seed("nwndgen/loot/1", 15, seed, a->resref));
     for (k = 0; k < a->nsp; k++) {
         spawn_pt *p = &a->sp[k];
-        int cr, got = 0, boss = p->kind == 'B';
+        int cr, got = 0, boss = p->kind == 'B' || p->kind == 'T';
         if (p->kind != 'C' && !boss)
             continue;
         cr = theme_cr(t, p->bp);
@@ -495,7 +496,7 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
                 if (!layout_full_floor(l, x, y))
                     occ[y][x] = 1;
         if (a->has_start) {
-            if (sc->boss_only) { /* test runs: the boss may stand right beside the arrival point, just not on it */
+            if (sc->boss_only || sc->loot_test) { /* test runs: the boss may stand right beside the arrival point, just not on it */
                 occ[a->pair_start[1]][a->pair_start[0]] = 1;
                 occ[a->pair_start[3]][a->pair_start[2]] = 1;
             } else {
@@ -513,8 +514,8 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
         }
         /* The objective goes in the last room of the last area; boss_only test runs put it in the start room
          * of the first area instead (still clear of the arrival point). */
-        if ((sc->boss_only ? i == 0 : i + 1 == d->n) &&
-            place_objective(a, ro, th, bcap, sc->boss_only, sc->boss_only ? 0 : l->nrooms - 1, &rng, occ, err) != 0) {
+        if (((sc->boss_only || sc->loot_test) ? i == 0 : i + 1 == d->n) &&
+            place_objective(a, ro, th, bcap, sc->boss_only || sc->loot_test, (sc->boss_only || sc->loot_test) ? 0 : l->nrooms - 1, &rng, occ, err) != 0) {
             free(cand);
             return -1;
         }
@@ -534,7 +535,7 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
             cand[k - 1] = cand[j];
             cand[j] = tmp;
         }
-        for (k = 0; !sc->boss_only && k < nc && k < SPAWN_AREA_MAX; k++) {
+        for (k = 0; !sc->boss_only && k < nc && k < (sc->loot_test ? (i == 0 ? 5u : 0u) : SPAWN_AREA_MAX); k++) {
             static const int weight[3] = {6, 3, 1};
             const roster_entry *pool[3][ROSTER_POOL];
             size_t cnt[3] = {0, 0, 0}, e;
@@ -542,7 +543,7 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
             for (role = 0; role < 3; role++) {
                 for (e = 0; e < th->n[role]; e++) {
                     const roster_entry *en = &th->e[role][e];
-                    if (en->cr <= rcap && (uint64_t)en->cr <= budget)
+                    if (en->cr <= rcap && (sc->loot_test || (uint64_t)en->cr <= budget))
                         pool[role][cnt[role]++] = en;
                 }
                 if (cnt[role])
@@ -561,12 +562,16 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
             {
                 const roster_entry *en = pool[role][sm64_bounded(&rng, cnt[role])];
                 put(a, 'C', en->resref, cand[k].x, cand[k].y, rnd(&rng, 8));
-                budget -= (uint64_t)en->cr;
+                if (!sc->loot_test)
+                    budget -= (uint64_t)en->cr;
             }
         }
         if (!sc->boss_only)
             plan_deco(a, th, seed);
         plan_loot(a, th, seed, sc);
+        if (sc->loot_test)
+            for (k = 0; k < a->nsp; k++)
+                a->sp[k].weak = a->sp[k].kind == 'C' || a->sp[k].kind == 'T';
         free(cand);
     }
     return 0;
