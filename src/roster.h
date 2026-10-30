@@ -68,7 +68,7 @@ typedef struct {
 } roster;
 
 /* Inputs the spawn planner needs besides the roster. */
-typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen, loot_amount, dressing, corridor_dressing; } spawn_cfg; /* loot_amount: 0 mid, 1 low, 2 high; dressing and corridor_dressing: 0 off, 1 low, 2 mid, 3 high */
+typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen, loot_amount, dressing, corridor_dressing, locks; } spawn_cfg; /* loot_amount: 0 mid, 1 low, 2 high; dressing, corridor_dressing and locks: 0 off, 1 low, 2 mid, 3 high */
 
 /* A spawn marker: kind is one of C (creature) B (boss) T (boss with 1 hit point, boss_only runs) V (vault)
  * K (key item) R (relic item) D (decor prop) L (light) X (lootable container). */
@@ -78,6 +78,8 @@ typedef struct {
     int gold;           /* gold pieces it carries */
     int custom, xcm, ycm; /* custom = 1: the offset from the tile centre is (xcm, ycm) centimetres instead of 3.5 m * (ox, oy) (wall-side and corridor pieces); ox, oy keep the direction signs */
     int weak;           /* loot_test: the script gives it 1 hit point and takes its weapons */
+    char keybp[17], keytag[40]; /* locks: a creature that carries a door key: the key item blueprint and its tag (empty = none) */
+    int lockdc;         /* locks: a lootable container (X) that starts locked: the DC to pick it (0 = unlocked) */
 } spawn_pt;
 
 int roster_parse(const char *text, size_t len, roster *ro, char *err);

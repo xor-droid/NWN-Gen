@@ -78,7 +78,7 @@ uint64_t dungeon_area_seed(uint64_t seed, const char *resref);
 void dungeon_module_id(uint64_t seed, const char *tag, uint8_t out[16]);
 
 typedef struct { int tid, orient; } placed_tile;
-typedef struct { int cx, cy, app, donor, gen; double x, y, z, bearing; } dungeon_door;   /* donor: index in the template's Door List, gen: its GenericType_New (-1 = not a generic door) */   /* world metres, bearing in radians */
+typedef struct { int cx, cy, app, donor, gen; double x, y, z, bearing; int lock, dc; char keytag[40]; } dungeon_door;   /* donor: index in the template's Door List, gen: its GenericType_New (-1 = not a generic door), lock: 0 open, 1 locked (pick or bash), 2 locked and keyed (also bashable); dc: the pick DC; keytag: the key's tag */   /* world metres, bearing in radians */
 typedef struct {
     char resref[17];
     layout lay;

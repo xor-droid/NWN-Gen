@@ -50,6 +50,9 @@ dressing off
 # Optional: props along the stock kit corridors (needs corridors kit and a pack from the current nwnpack tilepack-kit), off (default), low, mid or high.
 corridor_dressing off
 
+# Optional: lock some corridor doors (pickable, or keyed with the key on a creature in an earlier room) and some chests (needs corridors kit and doors); off (default), low, mid or high.
+locks off
+
 # Optional run defaults. The command-line options of the same name override them.
 seed 12345
 party_size 1

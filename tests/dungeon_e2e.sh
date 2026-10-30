@@ -335,6 +335,43 @@ badruns "corridor_dressing without roster" --recipe "$FX/r_cnoroster.txt"
 badruns "corridor_dressing given twice" --recipe "$FX/r_cdup.txt"
 { cat "$FX/recipe_kit_corr.txt"; echo "corridor_dressing lots"; } > "$FX/r_cbad.txt"
 badruns "corridor_dressing lots" --recipe "$FX/r_cbad.txt"
+# locks off|low|mid|high: locked corridor doors (pickable, or keyed with the key on a creature in an earlier room) and locked containers
+mkdir -p "$T/lk"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed 12345 --output "$T/lk/off.mod" --manifest "$T/lk/off.txt" >/dev/null || bad "locks baseline generate"
+! grep -q 'locks' "$T/lk/off.txt" && ok || bad "locks appears in the manifest without the recipe key"
+ldoors=0; lkeyed=0; lchests=0; lkmod=
+for lvl in low mid high; do
+  { cat "$FX/recipe_kit_corr.txt"; echo "locks $lvl"; } > "$FX/recipe_kit_lock_$lvl.txt"
+  for seed in 1 2 3 4 5 6 7 8 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_lock_$lvl.txt" --seed $seed --output "$T/lk/${lvl}_$seed.mod" --manifest "$T/lk/${lvl}_$seed.txt" >"$T/lk/${lvl}_$seed.out" || { bad "locks $lvl generate seed $seed"; continue; }
+    grep -q "^locks=$lvl\$" "$T/lk/${lvl}_$seed.txt" && grep -q '^locks_algorithm=locks/1$' "$T/lk/${lvl}_$seed.txt" && grep -q '^locks\.[a-z_0-9]*=doors [0-9]*, keyed [0-9]*, chests [0-9]*$' "$T/lk/${lvl}_$seed.txt" && ok || bad "locks $lvl manifest seed $seed"
+    grep -q 'locks (locks '"$lvl"')' "$T/lk/${lvl}_$seed.out" && ok || bad "locks $lvl summary seed $seed"
+    dgk --roster "$FX/roster_corr_test.txt" "$T/lk/${lvl}_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck locks $lvl seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+    eval "$(sed -n 's/^locks\.[a-z_0-9]*=doors \([0-9]*\), keyed \([0-9]*\), chests \([0-9]*\)$/ldoors=$((ldoors + \1)); lkeyed=$((lkeyed + \2)); lchests=$((lchests + \3));/p' "$T/lk/${lvl}_$seed.txt" | paste -sd' ')"
+    grep -q 'keyed [1-9]' "$T/lk/${lvl}_$seed.txt" && lkmod="$T/lk/${lvl}_$seed.mod"
+  done
+done
+[ "$ldoors" -gt 0 ] && ok || bad "locks locked no door over 27 modules"
+[ "$lkeyed" -gt 0 ] && ok || bad "locks made no keyed door over 27 modules"
+[ "$lchests" -ge 0 ] && ok
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_lock_high.txt" --seed 12345 --output "$T/lk/again.mod" >/dev/null && cmp -s "$T/lk/again.mod" "$T/lk/high_12345.mod" && ok || bad "locks build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "locks off"; } > "$FX/recipe_kit_lock_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_lock_off.txt" --seed 12345 --output "$T/lk/offkey.mod" >/dev/null && cmp -s "$T/lk/offkey.mod" "$T/lk/off.mod" && ok || bad "locks off differs from leaving the key out"
+# negative proof: a key the door names but no creature carries
+if [ -n "$lkmod" ]; then
+  kt=$(LC_ALL=C grep -a -o 'KEY_[a-z_0-9]*_1' "$lkmod" | head -1)
+  off=$(LC_ALL=C grep -a -b -o "$kt" "$lkmod" | head -1 | cut -d: -f1) # change the last character of the first copy of the tag only
+  cp "$lkmod" "$T/lk/badkey.mod" && printf 9 | dd of="$T/lk/badkey.mod" bs=1 seek=$((off + ${#kt} - 1)) conv=notrunc 2>/dev/null
+  dgk --roster "$FX/roster_corr_test.txt" "$T/lk/badkey.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted a door key nobody carries" || { grep -q "creatures in the area carry it\|opens 0 doors" "$T/dg.txt" && ok || bad "dgcheck key message: $(head -3 "$T/dg.txt")"; }
+else bad "locks: no keyed module to run the negative proof on"; fi
+{ cat "$FX/recipe_kit.txt"; echo "locks high"; } > "$FX/r_lnoroster.txt"
+badruns "locks without roster" --recipe "$FX/r_lnoroster.txt"
+{ cat "$FX/recipe_test.txt"; echo "roster roster_corr_test.txt"; echo "scripts scripts"; echo "locks high"; } > "$FX/r_lnokit.txt"
+badruns "locks without corridors kit" --recipe "$FX/r_lnokit.txt"
+{ cat "$FX/recipe_kit_lock_high.txt"; echo "locks low"; } > "$FX/r_ldup.txt"
+badruns "locks given twice" --recipe "$FX/r_ldup.txt"
+{ cat "$FX/recipe_kit_corr.txt"; echo "locks lots"; } > "$FX/r_lbad.txt"
+badruns "locks lots" --recipe "$FX/r_lbad.txt"
 # negative proofs: the validator re-reads the tileset, so a lie about edges, door slots or doors must show
 KSET=tileset_kit_edge.set; sed 's/^Top=Corridor/Top=Bridge/' "$FX/tileset_kit.set" > "$FX/$KSET"
 checkfail "dgcheck rejects wrong corridor edges" dgk "$T/k/k1.mod"

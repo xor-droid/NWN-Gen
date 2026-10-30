@@ -783,6 +783,15 @@ static void upper(char *dst, const char *src)
     dst[i] = '\0';
 }
 
+/* A locked door (recipe key locks): lockable, locked, pick DC; keyed doors also name the key's tag. Never plot, so it can always be bashed. */
+static int lock_door(gff_struct *dr, const dungeon_door *dd, char *err)
+{
+    return gff_set_int(dr, "Locked", GFF_BYTE, 1, err) || gff_set_int(dr, "Lockable", GFF_BYTE, 1, err) ||
+           gff_set_int(dr, "OpenLockDC", GFF_BYTE, dd->dc, err) || gff_set_int(dr, "CloseLockDC", GFF_BYTE, dd->dc, err) ||
+           gff_set_int(dr, "KeyRequired", GFF_BYTE, dd->lock == 2, err) || gff_set_int(dr, "AutoRemoveKey", GFF_BYTE, 0, err) ||
+           gff_set_string(dr, "KeyName", GFF_STRING, dd->lock == 2 ? dd->keytag : "", err);
+}
+
 static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recipe *r, gff *git, gff *gic, char *err)
 {
     const dungeon_area *a = &d->area[i];
@@ -860,7 +869,8 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
             return -1;
         if ((p->loot[0][0] && add_var(w, "scel_loot", 1, p->loot[0], 0, err)) || (p->loot[1][0] && add_var(w, "scel_loot2", 1, p->loot[1], 0, err)) ||
             (p->gold && add_var(w, "scel_gold", 0, NULL, p->gold, err)) ||
-            (p->weak && add_var(w, "scel_weak", 0, NULL, 1, err))) {
+            (p->weak && add_var(w, "scel_weak", 0, NULL, 1, err)) ||
+            (p->keytag[0] && (add_var(w, "scel_key", 1, p->keytag, 0, err) || add_var(w, "scel_keybp", 1, p->keybp, 0, err))) || (p->lockdc && add_var(w, "scel_lockdc", 0, NULL, p->lockdc, err))) {
             gff_struct_free(w);
             return -1;
         }
@@ -886,7 +896,8 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
                 gff_set_float(dr, "Y", (float)a->door[m].y, err) || gff_set_float(dr, "Z", (float)a->door[m].z, err) ||
                 gff_set_float(dr, "Bearing", (float)a->door[m].bearing, err) || gff_set_int(dr, "Locked", GFF_BYTE, 0, err) ||
                 gff_set_int(dr, "Appearance", gff_find(dr, "Appearance") ? gff_find(dr, "Appearance")->type : GFF_DWORD, a->door[m].app, err) ||
-                gff_set_int(dr, "Plot", GFF_BYTE, 0, err) || gff_set_int(dr, "AnimationState", GFF_BYTE, 0, err)) {
+                gff_set_int(dr, "Plot", GFF_BYTE, 0, err) || gff_set_int(dr, "AnimationState", GFF_BYTE, 0, err) ||
+                (a->door[m].lock && lock_door(dr, &a->door[m], err))) {
                 gff_struct_free(dr);
                 return -1;
             }
@@ -1070,6 +1081,8 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, in
         a->door[j].app = tp->kit[q].app;
         a->door[j].donor = 0; /* the corridor door */
         a->door[j].gen = -1;
+        a->door[j].lock = a->door[j].dc = 0;
+        a->door[j].keytag[0] = '\0';
     }
     return 0;
 }
@@ -1150,6 +1163,8 @@ static int place_doorways(const tilepack *tp, uint64_t seed, const char *resref,
             a->door[a->ndoor].app = 0;
             a->door[a->ndoor].donor = (int)donor;
             a->door[a->ndoor].gen = (int)gff_get_int(dd->list[donor], "GenericType_New", -1);
+            a->door[a->ndoor].lock = a->door[a->ndoor].dc = 0;
+            a->door[a->ndoor].keytag[0] = '\0';
             a->ndoor++;
         }
     return 0;

@@ -65,6 +65,8 @@ static void put(dungeon_area *a, char kind, const char *bp, int cx, int cy, int 
     p->gold = 0;
     p->custom = p->xcm = p->ycm = 0;
     p->weak = 0;
+    p->keybp[0] = p->keytag[0] = '\0';
+    p->lockdc = 0;
 }
 
 /* Boss in the middle of the last room of the last area, vault chest on a free neighbouring cell. */
@@ -725,6 +727,96 @@ static void plan_loot(dungeon_area *a, const roster_theme *t, uint64_t seed, con
     }
 }
 
+/* Locks (recipe key `locks`, needs kit corridors and doors): some corridor doors start locked and some lootable containers too.
+ * The kit corridor "link i" joins room i to room i+1 and the chain's arrival point is in room 0, so a door on link i has rooms 0..i
+ * on its near side. Links 1 and up are eligible (the way out of the quiet arrival room stays open). A locked door is either
+ * keyless (pick DC, or bash) or keyed: a creature in rooms 1..i carries the key item, so the key is always on the near side; a keyed door can also
+ * be bashed, so nothing here can strand a party. low/mid/high lock one link in half the areas, half of the eligible links (at least one) and all of them, and 25, 40 and 60 in 100 of
+ * the containers. The pick DC is 10 + the band's average level (12-30). Own RNG domain, drawn after everything else. */
+static int room_at(const layout *l, int x, int y)
+{
+    int i;
+    for (i = 0; i < l->nrooms; i++)
+        if (x >= l->room[i][0] && x < l->room[i][2] && y >= l->room[i][1] && y < l->room[i][3])
+            return i;
+    return -1;
+}
+
+static int door_on_link(const dungeon_area *a, size_t q, int link)
+{
+    const layout *l = &a->lay;
+    int c, in = (a->door[q].cx == l->conn[link][0][0] && a->door[q].cy == l->conn[link][0][1]) ||
+                (a->door[q].cx == l->conn[link][1][0] && a->door[q].cy == l->conn[link][1][1]);
+    for (c = 0; c < l->link_n[link] && !in; c++)
+        in = a->door[q].cx == l->link[link][c][0] && a->door[q].cy == l->link[link][c][1];
+    return in;
+}
+
+static void plan_locks(dungeon_area *a, const roster *ro, int level, uint64_t seed, const spawn_cfg *sc)
+{
+    static const int CHEST_PCT[4] = {0, 25, 40, 60};
+    const layout *l = &a->lay;
+    sm64 rng;
+    int avg = (int)(((long)sc->min_level + (long)sc->max_level) / 2), dc, link, ncand = 0, want, nkey = 0, cand[RECIPE_ROOMS_MAX], k;
+    size_t q;
+
+    if (level < 1)
+        return;
+    dc = 10 + (avg < 1 ? 1 : avg);
+    dc = dc < 12 ? 12 : dc > 30 ? 30 : dc;
+    sm64_seed(&rng, domain_seed("nwndgen/locks/1", 16, seed, a->resref));
+    for (link = 1; link < l->nlink; link++) {
+        int has = 0;
+        for (q = 0; q < a->ndoor && !has; q++)
+            has = door_on_link(a, q, link);
+        if (has)
+            cand[ncand++] = link;
+    }
+    want = level == 1 ? rnd(&rng, 2) : level == 2 ? (ncand + 1) / 2 : ncand; /* low: one link in half the areas; mid: half of the eligible links; high: all of them */
+    want = want < 1 && level > 1 ? 1 : want;
+    want = want > ncand ? ncand : want; /* no eligible link: only containers are locked */
+    for (k = 0; k < want; k++) { /* pick `want` of the eligible links */
+        int j = k + rnd(&rng, ncand - k), tmp = cand[k], dl[8], nd = 0, hold[SPAWN_PT_MAX], nh = 0, pick;
+        dungeon_door *dr;
+        cand[k] = cand[j];
+        cand[j] = tmp;
+        link = cand[k];
+        for (q = 0; q < a->ndoor && nd < 8; q++)
+            if (door_on_link(a, q, link))
+                dl[nd++] = (int)q;
+        dr = &a->door[dl[rnd(&rng, nd)]];
+        dr->lock = 1;
+        dr->dc = dc;
+        for (q = 0; q < a->nsp; q++) {
+            int rm = a->sp[q].kind == 'C' && !a->sp[q].keytag[0] ? room_at(l, a->sp[q].cx, a->sp[q].cy) : -1;
+            if (rm >= 1 && rm <= link)
+                hold[nh++] = (int)q;
+        }
+        if (nh && rnd(&rng, 2) == 0) { /* keyed */
+            dr->lock = 2;
+            snprintf(dr->keytag, sizeof dr->keytag, "KEY_%s_%d", a->resref, ++nkey);
+            pick = hold[rnd(&rng, nh)];
+            strcpy(a->sp[pick].keytag, dr->keytag);
+            strcpy(a->sp[pick].keybp, ro->key);
+        }
+    }
+    for (q = 0; q < a->nsp; q++)
+        if (a->sp[q].kind == 'X' && rnd(&rng, 100) < CHEST_PCT[level])
+            a->sp[q].lockdc = dc;
+}
+
+void spawn_lock_counts(const dungeon_area *a, int *doors, int *keyed, int *chests)
+{
+    size_t k;
+    *doors = *keyed = *chests = 0;
+    for (k = 0; k < a->ndoor; k++) {
+        *doors += a->door[k].lock != 0;
+        *keyed += a->door[k].lock == 2;
+    }
+    for (k = 0; k < a->nsp; k++)
+        *chests += a->sp[k].lockdc != 0;
+}
+
 int spawn_corridor_props(const dungeon_area *a)
 {
     size_t k;
@@ -872,6 +964,8 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
             plan_rooms(a, ro, sc->dressing, seed);
         if (sc->corridor_dressing && !sc->boss_only && !sc->loot_test)
             plan_corridor(a, ro, sc->corridor_dressing, seed);
+        if (sc->locks && !sc->boss_only && !sc->loot_test)
+            plan_locks(a, ro, sc->locks, seed, sc);
         if (sc->loot_test)
             for (k = 0; k < a->nsp; k++)
                 a->sp[k].weak = a->sp[k].kind == 'C' || a->sp[k].kind == 'T';

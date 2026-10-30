@@ -306,6 +306,7 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.loot_amount = c->r.loot_amount;
         sc.dressing = c->r.dressing;
         sc.corridor_dressing = c->r.corridor_dressing;
+        sc.locks = c->r.locks;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -623,6 +624,15 @@ int main(int argc, char **argv)
                     append(&manifest, &mlen, &mcap, "corridor_algorithm=%s\n", CORRIDOR_ALGORITHM_VERSION);
                     for (s = 0; s < c->d.n; s++) {
                         append(&manifest, &mlen, &mcap, "corridor_props.%s=%d\n", c->d.area[s].resref, spawn_corridor_props(&c->d.area[s]));
+                    }
+                }
+                if (c->r.locks) {
+                    append(&manifest, &mlen, &mcap, "locks=%s\n", c->r.locks == 1 ? "low" : c->r.locks == 2 ? "mid" : "high");
+                    append(&manifest, &mlen, &mcap, "locks_algorithm=%s\n", LOCKS_ALGORITHM_VERSION);
+                    for (s = 0; s < c->d.n; s++) {
+                        int nd, nk, nc;
+                        spawn_lock_counts(&c->d.area[s], &nd, &nk, &nc);
+                        append(&manifest, &mlen, &mcap, "locks.%s=doors %d, keyed %d, chests %d\n", c->d.area[s].resref, nd, nk, nc);
                     }
                 }
                 if (c->ro.theme[c->d.theme].nloot || c->ro.theme[c->d.theme].gold_per_cr) {

@@ -170,6 +170,7 @@ henchmen 0                        optional: 0-5 stock AI henchmen join the first
 loot_amount mid                    optional: low, mid (default) or high, see Level-scaled loot
 dressing off                       optional: off (default), low, mid or high, see Room dressing
 corridor_dressing off              optional: off (default), low, mid or high, needs corridors kit, see Corridor dressing
+locks off                         optional: off (default), low, mid or high, needs corridors kit and doors, see Locks
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions
@@ -264,6 +265,21 @@ orientation and where the corridor is its full width (some stock straights bulge
 walkmesh. **Rerun `nwnpack tilepack-kit` after updating**: an older pack still builds, it simply has no prop spots (no corridor props). Pieces are ordinary decor markers (`SPD_`), so `scel_enter` needs no change.
 Own RNG domain `nwndgen/corridor/1`, algorithm id `corridor/1`, run after room dressing; without the key, or `off`, output is byte-identical. The summary prints `corridor props` per area and the manifest
 records `corridor_dressing=`, `corridor_algorithm=` and `corridor_props.<area>=N`. Generated and validated; **not yet confirmed in game.**
+
+#### Locks (same `roster`, recipe key `locks`)
+
+`locks off|low|mid|high` (default `off`, needs `roster`, `scripts`, `corridors kit` and a `doors` mode) locks some corridor doors and some lootable containers.
+The rooms form a chain, so a door in the corridor between two rooms separates the arrival room (and every room before the door) from the rest. The corridor out of the arrival room never gets a lock; every later corridor with a door can.
+`low` locks one corridor in about half the areas, `mid` half of the eligible corridors (at least one), `high` all of them; one door per chosen corridor.
+A locked door is either **keyless** (pick it, cast Knock, or bash it) or **keyed**: roughly half of them name a key by tag and a creature in a room before the door (never the quiet arrival room) carries that key (stock key
+blueprint from the roster's `key` line, renamed "Door Key", dropped on death like the other loot). A keyed door is not plot, so it can be bashed as well; a keyless one is never impossible either. The pick DC is 10 plus the average
+level of the level band (12-30). Containers (`X` markers) start locked at 25, 40 and 60 in 100 for low, mid and high with the same DC, pickable or bashable.
+Door locks are written into the area GIT (`Locked`, `Lockable`, `OpenLockDC`, `KeyRequired`, `KeyName`); the key and the container locks are applied by `scel_enter` from marker variables
+(`scel_key`, `scel_keybp`, `scel_lockdc`). The marker limit in the script is now 200 (the generator's limit is 192).
+`dgcheck` re-proves it: a locked door is lockable, not plot, DC 12-30, its key requirement matches its key tag, exactly one creature in the area carries each key and no creature carries a key that opens nothing,
+and a flood fill from the arrival point reaches every key holder without passing a keyed door whose own key is still out of reach. Henchmen may not path through locked doors well; use `low` with henchmen.
+Own RNG domain `nwndgen/locks/1`, algorithm id `locks/1`, run after the other planners; without the key, or `off`, output is byte-identical. The summary prints `locks` per area and the manifest records
+`locks=`, `locks_algorithm=` and `locks.<area>=doors N, keyed N, chests N`. Generated and validated; **not yet confirmed in game.**
 
 #### Level-scaled loot (same `roster`)
 

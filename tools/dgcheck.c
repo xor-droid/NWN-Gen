@@ -184,8 +184,14 @@ static size_t check_doors(const area_info *a, const int *tid, const int *ori, co
                     if (!angle_close(gff_get_float(d, "Bearing", 99), eb) && !(t->dslot[s].type == 0 && angle_close(gff_get_float(d, "Bearing", 99), eb + 3.14159265358979))) BAD("%s: door %s faces the wrong way for its tile", a->name, gff_get_string(d, "Tag"));
                     if (gff_get_int(d, "Appearance", -1) != t->dslot[s].type) BAD("%s: door %s has appearance %lld, the slot wants %d", a->name, gff_get_string(d, "Tag"), (long long)gff_get_int(d, "Appearance", -1), t->dslot[s].type);
                     if (t->dslot[s].type == 0 && (gff_get_int(d, "GenericType_New", -1) < 0 || gff_get_int(d, "GenericType_New", -1) > 27)) BAD("%s: door %s on a generic door slot has GenericType_New %lld", a->name, gff_get_string(d, "Tag"), (long long)gff_get_int(d, "GenericType_New", -1));
-                    if (gff_get_int(d, "Locked", 1) || gff_get_int(d, "Plot", 1) || gff_get_int(d, "AnimationState", 1) || gff_get_int(d, "TrapFlag", 1))
-                        BAD("%s: door %s is locked, plot, trapped or not closed", a->name, gff_get_string(d, "Tag"));
+                    if (gff_get_int(d, "Plot", 1) || gff_get_int(d, "AnimationState", 1) || gff_get_int(d, "TrapFlag", 1) || gff_get_int(d, "Locked", -1) < 0)
+                        BAD("%s: door %s is plot, trapped or not closed", a->name, gff_get_string(d, "Tag"));
+                    if (gff_get_int(d, "Locked", 0)) { /* recipe key locks: a pickable or keyed door; never plot, so it can always be bashed */
+                        const char *kn = gff_get_string(d, "KeyName");
+                        int64_t dc = gff_get_int(d, "OpenLockDC", 0);
+                        if (gff_get_int(d, "Lockable", 0) != 1 || dc < 12 || dc > 30 || gff_get_int(d, "CloseLockDC", 0) != dc) BAD("%s: locked door %s is not lockable or has a pick DC outside 12-30", a->name, gff_get_string(d, "Tag"));
+                        if ((gff_get_int(d, "KeyRequired", 0) != 0) != (kn && *kn) || (kn && strlen(kn) > 32)) BAD("%s: locked door %s has a key requirement that does not match its key tag", a->name, gff_get_string(d, "Tag"));
+                    } else if (gff_get_int(d, "KeyRequired", 0) || gff_get_int(d, "Lockable", 0) > 1) BAD("%s: unlocked door %s wants a key", a->name, gff_get_string(d, "Tag"));
                     if (gff_get_float(d, "Z", 99) - t->dslot[s].z > 0.2 || t->dslot[s].z - gff_get_float(d, "Z", 99) > 0.2) BAD("%s: door %s is at the wrong height", a->name, gff_get_string(d, "Tag"));
                 }
                 if (!found) BAD("%s: door tile %s at (%d,%d) has no door at its slot (%.1f, %.1f)", a->name, t->model, x, y, ex, ey);
@@ -204,6 +210,8 @@ typedef struct {
     int area, cx, cy;
     double ox, oy; /* metres from the cell centre */
     char loot[2][17];
+    char key[40], keybp[17]; /* a creature carrying a door key: its tag and blueprint */
+    int lockdc;              /* a container that starts locked: the pick DC */
     int gold;
 } marker;
 
@@ -382,6 +390,96 @@ static void check_floor_tiles(area_info *ai, size_t na, const tileset *ts, resma
     free(state);
 }
 
+/* Cells a walker reaches from `start` across matching open sides, never entering a blocked cell. */
+static void flood(const area_info *a, int start, const unsigned char *blocked, unsigned char *seen)
+{
+    static const int DX[4] = {0, 1, 0, -1}, DY[4] = {1, 0, -1, 0}; /* T R B L */
+    int n = a->w * a->h, sp = 0;
+    int *stack = malloc((size_t)n * sizeof *stack);
+    memset(seen, 0, (size_t)n);
+    if (start >= 0 && start < n && !blocked[start]) {
+        stack[sp++] = start;
+        seen[start] = 1;
+    }
+    while (sp) {
+        int c = stack[--sp], x = c % a->w, y = c / a->w, d;
+        for (d = 0; d < 4; d++) {
+            int nx = x + DX[d], ny = y + DY[d], nc = ny * a->w + nx;
+            if (!(a->open[c] >> d & 1) || nx < 0 || ny < 0 || nx >= a->w || ny >= a->h || seen[nc] || blocked[nc] || !(a->open[nc] >> ((d + 2) & 3) & 1)) continue;
+            seen[nc] = 1;
+            stack[sp++] = nc;
+        }
+    }
+    free(stack);
+}
+
+/* Locked doors (recipe key locks). A keyed door names its key by tag: exactly one creature in the same area carries that tag, and the creature
+ * can be reached from where the party arrives without passing a keyed door whose own key is still out of reach. Keyless locked doors can be
+ * picked or bashed, and keyed doors are bashable too (not plot), so they never block this walk. */
+static void check_locks(const gff *ifo, area_info *ai, size_t na, const marker *mk, size_t nm, const roster *ro)
+{
+    size_t a, q, i;
+    for (a = 0; a < na; a++) {
+        const gff_field *dl = ai[a].git.root ? gff_find(ai[a].git.root, "Door List") : NULL, *wl = ai[a].git.root ? gff_find(ai[a].git.root, "WaypointList") : NULL;
+        size_t nd = dl && dl->type == GFF_LIST ? dl->nlist : 0, nb = 0;
+        int n = ai[a].w * ai[a].h, start = -1, changed;
+        int *dcell = calloc(nd ? nd : 1, sizeof *dcell), *hcell = calloc(nd ? nd : 1, sizeof *hcell), *dq = calloc(nd ? nd : 1, sizeof *dq);
+        unsigned char *blocked = calloc((size_t)(n ? n : 1), 1), *seen = calloc((size_t)(n ? n : 1), 1);
+        for (q = 0; q < nd; q++) {
+            const gff_struct *d = dl->list[q];
+            const char *kn = gff_get_string(d, "KeyName");
+            int cx = (int)(gff_get_float(d, "X", -1) / 10.0), cy = (int)(gff_get_float(d, "Y", -1) / 10.0), found = 0;
+            if (!gff_get_int(d, "Locked", 0) || !gff_get_int(d, "KeyRequired", 0) || !kn || !*kn || cx < 0 || cy < 0 || cx >= ai[a].w || cy >= ai[a].h) continue;
+            for (i = 0; i < nm; i++)
+                if (mk[i].area == (int)a && mk[i].key[0] && !strcmp(mk[i].key, kn)) {
+                    if (!found++) hcell[nb] = mk[i].cy * ai[a].w + mk[i].cx;
+                }
+            if (found != 1) BAD("%s: keyed door %s needs key '%s' but %d creatures in the area carry it", ai[a].name, gff_get_string(d, "Tag"), kn, found);
+            else {
+                dcell[nb] = cy * ai[a].w + cx;
+                dq[nb++] = (int)q;
+            }
+        }
+        for (i = 0; i < nm; i++) {
+            int f = 0;
+            if (mk[i].area != (int)a || !mk[i].key[0]) continue;
+            for (q = 0; q < nd; q++) {
+                const char *kn = gff_get_string(dl->list[q], "KeyName");
+                f += gff_get_int(dl->list[q], "KeyRequired", 0) && kn && !strcmp(kn, mk[i].key);
+            }
+            if (f != 1) BAD("%s: a creature carries key '%s' that opens %d doors", ai[a].name, mk[i].key, f);
+            if (ro && strcmp(mk[i].keybp, ro->key)) BAD("%s: door key item %s is not the roster's key %s", ai[a].name, mk[i].keybp, ro->key);
+        }
+        if (a == 0) start = (int)(gff_get_float(ifo->root, "Mod_Entry_Y", -1) / 10.0) * ai[a].w + (int)(gff_get_float(ifo->root, "Mod_Entry_X", -1) / 10.0);
+        for (q = 0; wl && q < wl->nlist; q++) {
+            const char *t = gff_get_string(wl->list[q], "Tag");
+            size_t tl = t ? strlen(t) : 0;
+            if (t && tl > 4 && !strncmp(t, "WP_", 3) && !strcmp(t + tl - 4, "_FWD"))
+                start = (int)(gff_get_float(wl->list[q], "YPosition", -1) / 10.0) * ai[a].w + (int)(gff_get_float(wl->list[q], "XPosition", -1) / 10.0);
+        }
+        if (nb && start >= 0 && start < n) {
+            size_t b;
+            for (b = 0; b < nb; b++) blocked[dcell[b]] = 1;
+            do {
+                changed = 0;
+                flood(&ai[a], start, blocked, seen);
+                for (b = 0; b < nb; b++)
+                    if (blocked[dcell[b]] && seen[hcell[b]]) {
+                        blocked[dcell[b]] = 0;
+                        changed = 1;
+                    }
+            } while (changed);
+            for (b = 0; b < nb; b++)
+                if (blocked[dcell[b]]) BAD("%s: the key for door %s cannot be reached from the arrival point without passing a locked keyed door", ai[a].name, gff_get_string(dl->list[dq[b]], "Tag"));
+        }
+        free(dcell);
+        free(hcell);
+        free(dq);
+        free(blocked);
+        free(seen);
+    }
+}
+
 static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, const tileset *ts, resman *rm, const roster *ro)
 {
     static const struct { const char *name; uint16_t type; } SC[4] = {{"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS}};
@@ -437,6 +535,8 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
             p->oy = gff_get_float(wl->list[q], "YPosition", -1) - (p->cy * 10.0 + 5.0);
             p->loot[0][0] = p->loot[1][0] = '\0';
             p->gold = 0;
+            p->key[0] = p->keybp[0] = '\0';
+            p->lockdc = 0;
             {
                 const char *sv = NULL;
                 int64_t iv = 0;
@@ -449,6 +549,16 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
                 ty = var_get(wl->list[q], "scel_gold", &sv, &iv);
                 if (ty == 1) p->gold = (int)iv;
                 else if (ty) BAD("%s: marker %s has a malformed scel_gold", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_key", &sv, &iv);
+                if (ty == 3 && sv && *sv && strlen(sv) <= 32 && p->kind == 'C') strcpy(p->key, sv);
+                else if (ty) BAD("%s: marker %s has a malformed scel_key", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_keybp", &sv, &iv);
+                if (ty == 3 && sv && resref_ok(sv) && p->key[0]) strcpy(p->keybp, sv);
+                else if (ty) BAD("%s: marker %s has a malformed scel_keybp", ai[a].name, t);
+                if (p->key[0] && !p->keybp[0]) BAD("%s: marker %s carries a key without a key blueprint", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_lockdc", &sv, &iv);
+                if (ty == 1 && p->kind == 'X' && iv >= 12 && iv <= 30) p->lockdc = (int)iv;
+                else if (ty) BAD("%s: marker %s has a malformed scel_lockdc", ai[a].name, t);
             }
             cnt[(int)p->kind]++;
             if (p->kind == 'C') ncreat++;
@@ -516,6 +626,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         if (any && walk_components(&tmp, 1) != walk_components(&ai[a], 1)) BAD("%s: scenery splits the walkable area into several regions", ai[a].name);
         free(tmp.open);
     }
+    check_locks(ifo, ai, na, mk, nm, ro);
     /* roster consistency: one theme supplies every creature; objective items match */
     if (ro && boss && cnt['B'] == 1) {
         size_t t;
