@@ -90,6 +90,8 @@ min_level 1
 max_level 2
 ```
 
+`assets/recipe_example.txt` is a commented recipe that uses every key; its header says how to generate the donor files it points at.
+
 The four run-default lines (`seed`, `party_size`, `min_level`, `max_level`) are optional and stand in for the matching command-line options, so a recipe can describe
 a whole run: `nwndgen --game nwn1 --base base.mod --recipe recipe.txt --output out.mod`. A command-line option always overrides the recipe line. The seed is
 still required from one place or the other; party size and levels fall back to 1 and 1-2 when neither gives them. They never change the layout algorithm: the same
