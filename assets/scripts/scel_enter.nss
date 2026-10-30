@@ -4,12 +4,38 @@
 //   SPV_ vault chest (locked, plot)
 //   SPK_ key item (given to the boss)                 SPR_ relic item (put in the vault)
 //   SPD_ decor prop   SPL_ light (brazier, torch ...)   SPX_ lootable container (barrel, crate)
+// A creature or boss marker may carry local variables set by the generator: scel_loot / scel_loot2 (item blueprints the
+// creature carries) and scel_gold (gold pieces). Their presence turns off the stock random monster treasure (X2_L_NOTREASURE
+// on the module, set before anything is created because the stock OnSpawn script rolls it inside CreateObject).
 // The markers are copied into local variables first and objects are created afterwards, because creating
 // objects while walking the area's object list can make the walk revisit the same waypoint (TMI).
 // Pass 1 creates creatures, boss and vault; pass 2 fills them, so marker order is irrelevant.
 // Quest ID "scel_main": entry 1 on the first area entry.
 
 int MAX_MARKERS = 128;
+
+// Items and gold the generator assigned to marker n. Droppable, so they land in the corpse loot like the key does.
+void GiveSpawnLoot(object oCreature, object oArea, int n)
+{
+    string sA = GetLocalString(oArea, "scel_a" + IntToString(n));
+    string sB = GetLocalString(oArea, "scel_b" + IntToString(n));
+    int nGold = GetLocalInt(oArea, "scel_g" + IntToString(n));
+    object oItem;
+    if (!GetIsObjectValid(oCreature))
+        return;
+    if (sA != "")
+    {
+        oItem = CreateItemOnObject(sA, oCreature);
+        SetDroppableFlag(oItem, TRUE);
+    }
+    if (sB != "")
+    {
+        oItem = CreateItemOnObject(sB, oCreature);
+        SetDroppableFlag(oItem, TRUE);
+    }
+    if (nGold > 0)
+        CreateItemOnObject("nw_it_gold001", oCreature, nGold);
+}
 
 void main()
 {
@@ -21,6 +47,7 @@ void main()
     string sKind;
     string sBp;
     int nMark = 0;
+    int bLoot = FALSE;
     int nSeen = 0;
     int i;
 
@@ -47,10 +74,19 @@ void main()
         {
             SetLocalString(oArea, "scel_t" + IntToString(nMark), sTag);
             SetLocalLocation(oArea, "scel_l" + IntToString(nMark), GetLocation(o));
+            SetLocalString(oArea, "scel_a" + IntToString(nMark), GetLocalString(o, "scel_loot"));
+            SetLocalString(oArea, "scel_b" + IntToString(nMark), GetLocalString(o, "scel_loot2"));
+            SetLocalInt(oArea, "scel_g" + IntToString(nMark), GetLocalInt(o, "scel_gold"));
+            if (GetLocalString(o, "scel_loot") != "" || GetLocalInt(o, "scel_gold") > 0)
+                bLoot = TRUE;
             nMark++;
         }
         o = GetNextObjectInArea(oArea, OBJECT_TYPE_WAYPOINT);
     }
+
+    // The generator decided every drop; keep the stock random treasure from adding to it.
+    if (bLoot)
+        SetLocalInt(oMod, "X2_L_NOTREASURE", TRUE);
 
     // Pass 1: creatures, boss, vault.
     for (i = 0; i < nMark; i++)
@@ -60,12 +96,13 @@ void main()
         sBp = GetStringRight(sTag, GetStringLength(sTag) - 4);
         location lLoc = GetLocalLocation(oArea, "scel_l" + IntToString(i));
         if (sKind == "SPC_")
-            CreateObject(OBJECT_TYPE_CREATURE, sBp, lLoc);
+            GiveSpawnLoot(CreateObject(OBJECT_TYPE_CREATURE, sBp, lLoc), oArea, i);
         else if (sKind == "SPD_" || sKind == "SPL_" || sKind == "SPX_")
             CreateObject(OBJECT_TYPE_PLACEABLE, sBp, lLoc); // scenery: props, lights, lootable containers
         else if (sKind == "SPB_" || sKind == "SPT_")
         {
             object oBoss = CreateObject(OBJECT_TYPE_CREATURE, sBp, lLoc, FALSE, "SCEL_BOSS");
+            GiveSpawnLoot(oBoss, oArea, i);
             // SPT_ is the quick-test boss: one hit point.
             if (sKind == "SPT_")
             {

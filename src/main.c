@@ -532,6 +532,18 @@ int main(int argc, char **argv)
                     }
                     append(&manifest, &mlen, &mcap, "scenery.%s=decor %d light %d container %d\n", c->d.area[s].resref, nd, nl, nx);
                 }
+                if (c->ro.theme[c->d.theme].nloot || c->ro.theme[c->d.theme].gold_per_cr) {
+                    append(&manifest, &mlen, &mcap, "loot_algorithm=%s\n", LOOT_ALGORITHM_VERSION);
+                    for (s = 0; s < c->d.n; s++) {
+                        long ni = 0, gp = 0;
+                        for (k = 0; k < c->d.area[s].nsp; k++) {
+                            ni += c->d.area[s].sp[k].loot[0][0] != 0;
+                            ni += c->d.area[s].sp[k].loot[1][0] != 0;
+                            gp += c->d.area[s].sp[k].gold;
+                        }
+                        append(&manifest, &mlen, &mcap, "loot.%s=items %ld gold %ld\n", c->d.area[s].resref, ni, gp);
+                    }
+                }
             }
         } else {
             append(&manifest, &mlen, &mcap, "catalog_sha256=%s\n", ch);

@@ -767,6 +767,11 @@ static int cmd_roster_check(const char *root, const char *path)
                     if (gff_get_int(g.root, "FactionID", -1) != 1) RBAD("%s/%s: %s is not in the hostile faction", ro.theme[t].id, ROLE_NAME[role], e->resref);
                     if ((int)(cr * 100.0 + 0.5) != e->cr) RBAD("%s/%s: %s has CR %.3f, roster says %d.%02d", ro.theme[t].id, ROLE_NAME[role], e->resref, cr, e->cr / 100, e->cr % 100);
                     rc_scripts(&rm, e->resref, g.root, "Script");
+                    if (ro.theme[t].nloot || ro.theme[t].gold_per_cr) { /* only the stock spawn script is known to honour X2_L_NOTREASURE */
+                        const char *sp = gff_get_string(g.root, "ScriptSpawn");
+                        if (!sp || strcmp(sp, "nw_c2_default9"))
+                            RBAD("%s/%s: %s has spawn script '%s', not nw_c2_default9, so its random treasure may not switch off", ro.theme[t].id, ROLE_NAME[role], e->resref, sp ? sp : "");
+                    }
                 }
                 n++;
                 gff_free(&g);
@@ -798,6 +803,23 @@ static int cmd_roster_check(const char *root, const char *path)
                 gff_free(&g);
                 free(b);
             }
+    }
+    for (t = 0; t < ro.ntheme; t++) { /* loot: each item exists, is not plot or cursed, and is a single droppable stack; its value is printed for review */
+        for (i = 0; i < ro.theme[t].nloot; i++) {
+            const roster_loot *li = &ro.theme[t].loot[i];
+            if (rc_load(&rm, li->resref, 2025, &g, &b, NULL) != 0) continue;
+            if (gff_get_int(g.root, "Plot", 0)) RBAD("%s/loot: %s is a plot item", ro.theme[t].id, li->resref);
+            if (gff_get_int(g.root, "Cursed", 0)) RBAD("%s/loot: %s is cursed", ro.theme[t].id, li->resref);
+            printf("     %s/loot %-18s value %5lld gp, CR %d.%02d-%d.%02d, %d%%\n", ro.theme[t].id, li->resref, (long long)gff_get_int(g.root, "Cost", 0), li->min_cr / 100, li->min_cr % 100, li->max_cr / 100, li->max_cr % 100, li->chance);
+            n++;
+            gff_free(&g);
+            free(b);
+        }
+        if (ro.theme[t].gold_per_cr && rc_load(&rm, "nw_it_gold001", 2025, &g, &b, NULL) == 0) {
+            n++;
+            gff_free(&g);
+            free(b);
+        }
     }
     {
         const char *items[2] = {ro.key, ro.relic};

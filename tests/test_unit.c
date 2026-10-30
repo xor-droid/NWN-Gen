@@ -1285,6 +1285,149 @@ static int deco_has(const roster_theme *t, int kind, const char *bp)
     return 0;
 }
 
+
+static void test_roster_loot(void)
+{
+    roster ro;
+    char err[ERRLEN] = "";
+    size_t n;
+    char *text = slurp("tests/data/roster_loot_test.txt", &n);
+    static const char HEAD[] = "nwndgen-roster 1\nvault v\nkey k\nrelic r\ntheme a A\nminion m 1\nboss b 1\n";
+    char buf[1024];
+
+    CHECK(text && roster_parse(text, n, &ro, err) == 0);
+    CHECK(ro.theme[0].nloot == 3 && ro.theme[0].gold_per_cr == 10);
+    CHECK(!strcmp(ro.theme[0].loot[0].resref, "t_l_low") && ro.theme[0].loot[0].chance == 100 && ro.theme[0].loot[0].min_cr == 0 &&
+          ro.theme[0].loot[0].max_cr == 60);
+    CHECK(ro.theme[0].loot[2].chance == 50 && ro.theme[0].loot[2].min_cr == 300 && ro.theme[0].loot[2].max_cr == 900);
+    CHECK(ro.theme[1].nloot == 0 && ro.theme[1].gold_per_cr == 0);
+    free(text);
+
+#define BAD_LOOT(body, frag) \
+    do { snprintf(buf, sizeof buf, "%s%s", HEAD, body); err[0] = 0; CHECK(parse_roster(buf, &ro, err) != 0 && strstr(err, frag)); } while (0)
+#define GOOD_LOOT(body) \
+    do { snprintf(buf, sizeof buf, "%s%s", HEAD, body); err[0] = 0; CHECK(parse_roster(buf, &ro, err) == 0); } while (0)
+    GOOD_LOOT("loot i 1 0 0\nloot j 100 0.25 40\ngold 1\n");
+    GOOD_LOOT("gold 1000\n");
+    CHECK(parse_roster("nwndgen-roster 1\nvault v\nkey k\nrelic r\nloot i 5 0 1\ntheme a A\nminion m 1\nboss b 1\n", &ro, err) != 0 && strstr(err, "before any theme"));
+    CHECK(parse_roster("nwndgen-roster 1\nvault v\nkey k\nrelic r\ngold 5\ntheme a A\nminion m 1\nboss b 1\n", &ro, err) != 0 && strstr(err, "before any theme"));
+    BAD_LOOT("loot i\n", "needs");
+    BAD_LOOT("loot i 5\n", "needs");
+    BAD_LOOT("loot i 5 0\n", "needs");
+    BAD_LOOT("loot I 5 0 1\n", "resref");
+    BAD_LOOT("loot i 0 0 1\n", "chance");
+    BAD_LOOT("loot i 101 0 1\n", "chance");
+    BAD_LOOT("loot i x 0 1\n", "chance");
+    BAD_LOOT("loot i 5 0.001 1\n", "CR");
+    BAD_LOOT("loot i 5 0 abc\n", "CR");
+    BAD_LOOT("loot i 5 2 1\n", "above max");
+    BAD_LOOT("loot i 5 0 1\nloot i 6 0 2\n", "duplicate");
+    BAD_LOOT("gold\n", "without a value");
+    BAD_LOOT("gold 0\n", "gold per CR");
+    BAD_LOOT("gold 1001\n", "gold per CR");
+    BAD_LOOT("gold 5x\n", "gold per CR");
+    BAD_LOOT("gold 5\ngold 6\n", "twice");
+    {
+        char many[1024] = "";
+        int i;
+        for (i = 0; i < 17; i++)
+            snprintf(many + strlen(many), sizeof many - strlen(many), "loot i%d 5 0 1\n", i);
+        BAD_LOOT(many, "too many loot");
+    }
+}
+
+
+static int unit_theme_cr(const roster_theme *t, const char *bp)
+{
+    int role;
+    size_t i;
+    for (role = 0; role < ROLE_N; role++)
+        for (i = 0; i < t->n[role]; i++)
+            if (!strcmp(t->e[role][i].resref, bp))
+                return t->e[role][i].cr;
+    return -1;
+}
+
+static void test_loot_plan(void)
+{
+    size_t n, rn, ln, dn, i, k;
+    char *tp_text = slurp("tests/data/tilepack_test.txt", &n), *rtext = slurp("tests/data/recipe_test.txt", &rn),
+         *ltext = slurp("tests/data/roster_loot_test.txt", &ln), *dtext = slurp("tests/data/roster_deco_test.txt", &dn);
+    tilepack tp;
+    recipe r;
+    roster rl, rd;
+    gff are, git, ifo;
+    dungeon a, b, c;
+    char err[ERRLEN] = "";
+    spawn_cfg sc = {0}, sd = {0};
+    uint64_t seed;
+    int with_loot = 0, boss_loot = 0;
+
+    CHECK(tp_text && rtext && ltext && dtext);
+    if (!tp_text || !rtext || !ltext || !dtext)
+        return;
+    CHECK(tilepack_parse(tp_text, n, &tp, err) == 0 && recipe_parse(rtext, rn, "tests/data", &r, err) == 0);
+    CHECK(roster_parse(ltext, ln, &rl, err) == 0 && roster_parse(dtext, dn, &rd, err) == 0);
+    CHECK(fx_are(&are) == 0 && fx_git(&git) == 0 && fx_ifo(&ifo) == 0);
+
+    for (seed = 1; seed <= 60; seed++) {
+        int avg;
+        sc.ro = &rl; sd.ro = &rd;
+        sc.party = sd.party = 1 + (unsigned)(seed % 4);
+        sc.min_level = sd.min_level = 1 + (unsigned)(seed % 4);
+        sc.max_level = sd.max_level = sc.min_level + (unsigned)(seed % 2);
+        avg = (int)(sc.min_level + sc.max_level) / 2;
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seed, &sc, &a, err) == 0);
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seed, &sc, &b, err) == 0);
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seed, &sd, &c, err) == 0);
+        CHECK(a.theme == c.theme && a.n == c.n);
+        for (i = 0; i < a.n; i++) {
+            const roster_theme *th = &rl.theme[a.theme];
+            CHECK(a.area[i].nsp == b.area[i].nsp && a.area[i].nsp == c.area[i].nsp);
+            for (k = 0; k < a.area[i].nsp && k < c.area[i].nsp; k++) {
+                const spawn_pt *p = &a.area[i].sp[k], *q = &b.area[i].sp[k], *o = &c.area[i].sp[k];
+                int cr = unit_theme_cr(th, p->bp), j;
+                /* same seed, same loot; and the loot lines move nothing else (own RNG domain) */
+                CHECK(!memcmp(p->loot, q->loot, sizeof p->loot) && p->gold == q->gold);
+                CHECK(p->kind == o->kind && !strcmp(p->bp, o->bp) && p->cx == o->cx && p->cy == o->cy && p->face == o->face);
+                CHECK(!o->loot[0][0] && !o->loot[1][0] && !o->gold); /* no loot lines, no loot */
+                if (p->kind != 'C' && p->kind != 'B') {
+                    CHECK(!p->loot[0][0] && !p->loot[1][0] && !p->gold);
+                    continue;
+                }
+                if (a.theme == 1) { /* the second theme has no loot lines */
+                    CHECK(!p->loot[0][0] && !p->loot[1][0] && !p->gold);
+                    continue;
+                }
+                for (j = 0; j < 2; j++) {
+                    size_t e;
+                    int ok = !p->loot[j][0];
+                    for (e = 0; e < th->nloot; e++)
+                        ok |= !strcmp(th->loot[e].resref, p->loot[j]) && cr >= th->loot[e].min_cr && cr <= th->loot[e].max_cr;
+                    CHECK(ok);
+                    with_loot += p->loot[j][0] != 0;
+                }
+                if (cr <= 60)
+                    CHECK(!strcmp(p->loot[0], "t_l_low")); /* a certain drop in this band */
+                if (p->kind == 'B')
+                    boss_loot += p->loot[0][0] != 0;
+                {
+                    long crh = cr < 25 ? 25 : cr, lo = 10L * crh * 50 * (100 + 25 * (avg - 1)) / 1000000, hi = 10L * crh * 150 * (100 + 25 * (avg - 1)) / 1000000;
+                    if (p->kind == 'B') { lo *= 3; hi *= 3; }
+                    CHECK(p->gold >= 1 && p->gold >= lo && p->gold <= hi + 3);
+                }
+            }
+        }
+        dungeon_free(&a);
+        dungeon_free(&b);
+        dungeon_free(&c);
+    }
+    CHECK(with_loot > 20 && boss_loot > 0);
+    tilepack_free(&tp);
+    gff_free(&are); gff_free(&git); gff_free(&ifo);
+    free(tp_text); free(rtext); free(ltext); free(dtext);
+}
+
 static void test_roster_deco(void)
 {
     roster ro;
@@ -1773,6 +1916,8 @@ int main(void)
     test_dungeon();
     test_roster();
     test_roster_deco();
+    test_roster_loot();
+    test_loot_plan();
     test_spawn();
     test_deco();
     test_tileset();

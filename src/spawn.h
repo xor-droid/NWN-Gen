@@ -7,6 +7,7 @@
 #include "roster.h"
 
 #define SPAWN_ALGORITHM_VERSION "spawn/2"
+#define LOOT_ALGORITHM_VERSION "loot/1" /* carried items and gold per creature, see plan_loot */
 #define SPAWN_AREA_MAX 24 /* creatures per area, boss excluded */
 #define SPAWN_PT_MAX 64   /* markers per area: creatures, objective, scenery */
 

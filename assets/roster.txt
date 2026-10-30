@@ -7,6 +7,16 @@ key nw_it_msmlmisc11
 relic nw_it_msmlmisc05
 
 theme goblins Goblins
+gold 8
+# level-scaled loot: an entry applies when the creature's CR is within its range (bosses always carry two)
+loot nw_it_gem001 12 0.00 1.00
+loot nw_it_mpotion001 10 0.00 1.50
+loot nw_it_gem015 10 0.50 2.00
+loot nw_it_mpotion020 10 0.75 2.00
+loot nw_it_mpotion002 12 1.00 3.00
+loot nw_it_gem010 8 1.50 4.00
+loot nw_it_mpotion003 12 2.50 6.00
+loot nw_it_gem008 8 3.00 8.00
 minion nw_goblina 0.25
 minion nw_goblinb 0.25
 minion nw_hobgoblin001 0.25
@@ -28,6 +38,16 @@ container plc_box1 2
 ambience 3a3020 e0802a 4a2810 10 55
 
 theme kobolds Kobolds
+gold 6
+loot nw_it_sparscr002 10 0.00 1.00
+loot nw_it_mpotion001 12 0.00 1.50
+loot nw_it_gem003 10 0.50 2.00
+loot nw_it_sparscr104 10 1.00 3.00
+loot nw_it_mpotion005 10 1.00 3.00
+loot nw_it_mpotion002 10 1.25 3.00
+loot nw_it_gem010 8 1.50 4.00
+loot nw_it_mpotion004 10 2.50 6.00
+loot nw_it_gem008 8 3.00 8.00
 minion nw_kobold001 0.33
 minion nw_kobold002 0.33
 standard nw_kobold003 2
@@ -47,6 +67,15 @@ container plc_box2 2
 ambience 33291f c8a060 3a2c1c 9 50
 
 theme undead The restless dead
+gold 5
+loot nw_it_gem001 10 0.00 1.00
+loot nw_it_sparscr001 10 0.00 1.50
+loot nw_it_gem015 10 0.50 2.00
+loot nw_it_sparscr106 10 1.00 3.00
+loot nw_it_mpotion020 8 1.00 3.00
+loot nw_it_gem010 8 1.50 4.00
+loot nw_it_mpotion003 10 2.50 6.00
+loot nw_it_gem005 6 3.50 10.00
 minion nw_skeleton 0.5
 minion nw_zombie01 1
 minion nw_zombie02 1

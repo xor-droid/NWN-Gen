@@ -693,6 +693,20 @@ static int build_are(const gff *tpl, const tilepack *tp, const recipe_area *a, c
     return 0;
 }
 
+/* One local variable in an object's VarTable (struct id 0: Name, Type 1 = int / 3 = string, Value), the form the toolset writes. */
+static int add_var(gff_struct *obj, const char *name, int is_string, const char *sval, int ival, char *err)
+{
+    gff_field *vt = gff_find(obj, "VarTable");
+    gff_struct *v;
+    if (!vt && !(vt = gff_set_list(obj, "VarTable", err)))
+        return -1;
+    v = gff_struct_new(0);
+    gff_list_append(vt, v);
+    if (gff_set_string(v, "Name", GFF_STRING, name, err) || gff_set_int(v, "Type", GFF_DWORD, is_string ? 3 : 1, err))
+        return -1;
+    return is_string ? gff_set_string(v, "Value", GFF_STRING, sval, err) : gff_set_int(v, "Value", GFF_INT, ival, err);
+}
+
 static gff_struct *make_waypoint(const char *tag, const char *name, double x, double y, double dx, double dy, char *err)
 {
     gff_struct *w = gff_struct_new(5);
@@ -829,6 +843,11 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
         w = make_waypoint(tag, "Spawn point", cc(p->cx) + 3.5 * p->ox, cc(p->cy) + 3.5 * p->oy, fx[p->face & 7], fy[p->face & 7], err);
         if (!w)
             return -1;
+        if ((p->loot[0][0] && add_var(w, "scel_loot", 1, p->loot[0], 0, err)) || (p->loot[1][0] && add_var(w, "scel_loot2", 1, p->loot[1], 0, err)) ||
+            (p->gold && add_var(w, "scel_gold", 0, NULL, p->gold, err))) {
+            gff_struct_free(w);
+            return -1;
+        }
         gff_list_append(wl, w);
     }
 

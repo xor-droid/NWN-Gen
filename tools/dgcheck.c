@@ -190,7 +190,29 @@ static size_t check_doors(const area_info *a, const int *tid, const int *ori, co
 
 /* ---- creatures and objective (only when the module was built with a roster) ---- */
 
-typedef struct { char kind, bp[17]; int area, cx, cy; double ox, oy; /* metres from the cell centre */ } marker;
+typedef struct {
+    char kind, bp[17];
+    int area, cx, cy;
+    double ox, oy; /* metres from the cell centre */
+    char loot[2][17];
+    int gold;
+} marker;
+
+/* A local variable on a marker waypoint: returns its Type (1 int, 3 string) or 0 when absent. */
+static int var_get(const gff_struct *wp, const char *name, const char **sval, int64_t *ival)
+{
+    const gff_field *vt = gff_find(wp, "VarTable");
+    size_t i;
+    for (i = 0; vt && vt->type == GFF_LIST && i < vt->nlist; i++) {
+        const char *nm = gff_get_string(vt->list[i], "Name");
+        if (nm && !strcmp(nm, name)) {
+            *sval = gff_get_string(vt->list[i], "Value");
+            *ival = gff_get_int(vt->list[i], "Value", 0);
+            return (int)gff_get_int(vt->list[i], "Type", 0);
+        }
+    }
+    return 0;
+}
 
 static int cheb(int ax, int ay, int bx, int by)
 {
@@ -404,6 +426,21 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
             p->cy = (int)(gff_get_float(wl->list[q], "YPosition", -1) / 10.0);
             p->ox = gff_get_float(wl->list[q], "XPosition", -1) - (p->cx * 10.0 + 5.0);
             p->oy = gff_get_float(wl->list[q], "YPosition", -1) - (p->cy * 10.0 + 5.0);
+            p->loot[0][0] = p->loot[1][0] = '\0';
+            p->gold = 0;
+            {
+                const char *sv = NULL;
+                int64_t iv = 0;
+                int ty = var_get(wl->list[q], "scel_loot", &sv, &iv);
+                if (ty == 3 && sv && resref_ok(sv)) strcpy(p->loot[0], sv);
+                else if (ty) BAD("%s: marker %s has a malformed scel_loot", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_loot2", &sv, &iv);
+                if (ty == 3 && sv && resref_ok(sv)) strcpy(p->loot[1], sv);
+                else if (ty) BAD("%s: marker %s has a malformed scel_loot2", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_gold", &sv, &iv);
+                if (ty == 1) p->gold = (int)iv;
+                else if (ty) BAD("%s: marker %s has a malformed scel_gold", ai[a].name, t);
+            }
             cnt[(int)p->kind]++;
             if (p->kind == 'C') ncreat++;
             if (p->kind == 'D') ndecor++;
@@ -484,6 +521,28 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
             for (e = 0; e < ro->theme[theme].ndeco[kd]; e++) f |= !strcmp(ro->theme[theme].deco[kd][e].resref, mk[i].bp);
             if (!f) BAD("%s: %s %s is not in the %s list of theme '%s'", ai[mk[i].area].name, DECO_NAME[kd], mk[i].bp, DECO_NAME[kd], ro->theme[theme].id);
         }
+        /* loot: only creature and boss markers carry it, only from the theme's list and CR range; gold only if the theme gives gold */
+        for (i = 0; theme >= 0 && i < nm; i++) {
+            const roster_theme *th = &ro->theme[theme];
+            int mcr = 0, role, q2;
+            if (mk[i].kind != 'C' && mk[i].kind != 'B') {
+                if (mk[i].loot[0][0] || mk[i].loot[1][0] || mk[i].gold) BAD("%s: %c marker %s carries loot", ai[mk[i].area].name, mk[i].kind, mk[i].bp);
+                continue;
+            }
+            for (role = 0; role < ROLE_N; role++) if (in_roster_role(th, role, mk[i].bp, &mcr)) break;
+            if (mk[i].gold && !th->gold_per_cr) BAD("%s: %s carries gold but theme '%s' has none", ai[mk[i].area].name, mk[i].bp, th->id);
+            if (mk[i].gold < 0) BAD("%s: %s carries negative gold", ai[mk[i].area].name, mk[i].bp);
+            if (mk[i].loot[1][0] && !mk[i].loot[0][0]) BAD("%s: %s has a second item but no first", ai[mk[i].area].name, mk[i].bp);
+            if (mk[i].loot[0][0] && !strcmp(mk[i].loot[0], mk[i].loot[1]) && mk[i].kind == 'B') BAD("%s: boss %s carries the same item twice", ai[mk[i].area].name, mk[i].bp);
+            for (q2 = 0; q2 < 2; q2++) {
+                size_t e;
+                int f = 0;
+                if (!mk[i].loot[q2][0]) continue;
+                for (e = 0; e < th->nloot; e++)
+                    if (!strcmp(th->loot[e].resref, mk[i].loot[q2]) && mcr >= th->loot[e].min_cr && mcr <= th->loot[e].max_cr) f = 1;
+                if (!f) BAD("%s: %s carries %s outside its loot list or CR range for theme '%s'", ai[mk[i].area].name, mk[i].bp, mk[i].loot[q2], th->id);
+            }
+        }
         if (key && strcmp(key->bp, ro->key)) BAD("key marker %s != roster key %s", key->bp, ro->key);
         if (vault && strcmp(vault->bp, ro->vault)) BAD("vault marker %s != roster vault %s", vault->bp, ro->vault);
         if (relic && strcmp(relic->bp, ro->relic)) BAD("relic marker %s != roster relic %s", relic->bp, ro->relic);
@@ -496,6 +555,14 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
                 for (role = 0; role < ROLE_N && cr < 0; role++) (void)in_roster_role(&ro->theme[theme], role, mk[i].bp, &cr);
             for (j = 0; j < i; j++) if (mk[j].kind == mk[i].kind && !strcmp(mk[j].bp, mk[i].bp)) break;
             if (j == i) check_blueprint(rm, ai[mk[i].area].name, mk[i].kind, mk[i].bp, cr);
+            for (j = 0; j < 2; j++)
+                if (mk[i].loot[j][0]) {
+                    uint8_t *ub;
+                    size_t ul;
+                    char e3[ERRLEN];
+                    if (resman_get(rm, mk[i].loot[j], 2025, &ub, &ul, e3) != 0) BAD("%s: loot item %s does not resolve in the install", ai[mk[i].area].name, mk[i].loot[j]);
+                    else free(ub);
+                }
         }
     /* install: the tile under every creature/boss/vault marker has a walkable centre (the marker is at the
      * tile centre, which rotation does not move) */
@@ -537,6 +604,15 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
     if (nweak) printf("spawn: test mode, the boss has 1 hit point\n");
     printf("spawn: %d creature marker(s), %d decor, %d light, %d container, boss %s, vault %s%s%s\n", ncreat, ndecor, nlight, ncont, boss ? boss->bp : "-", vault ? vault->bp : "-",
            theme >= 0 ? ", theme " : "", theme >= 0 ? ro->theme[theme].id : "");
+    {
+        int nl = 0, ng = 0;
+        for (i = 0; i < nm; i++) {
+            nl += mk[i].loot[0][0] != 0;
+            nl += mk[i].loot[1][0] != 0;
+            ng += mk[i].gold > 0;
+        }
+        if (nl || ng) printf("loot: %d item(s) and gold on %d creature(s)\n", nl, ng);
+    }
     free(mk);
 }
 

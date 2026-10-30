@@ -138,6 +138,57 @@ int roster_parse(const char *text, size_t len, roster *ro, char *err)
                     return bad(err, line, "duplicate scenery entry");
             strcpy(cur->deco[kind][cur->ndeco[kind]].resref, rest);
             cur->deco[kind][cur->ndeco[kind]++].cr = w;
+        } else if (!strcmp(buf, "loot")) {
+            roster_loot *lt;
+            char *f[3], *end;
+            long ch;
+            int k, lo, hi;
+            size_t i;
+            if (!cur)
+                return bad(err, line, "loot before any theme");
+            sp2 = strchr(rest, ' ');
+            if (!sp2)
+                return bad(err, line, "loot needs 'resref chance min-CR max-CR'");
+            *sp2 = '\0';
+            if (!resref_ok(rest))
+                return bad(err, line, "resref must be 1-16 of a-z 0-9 _");
+            f[0] = sp2 + 1;
+            for (k = 0; k < 2; k++) {
+                f[k + 1] = strchr(f[k], ' ');
+                if (!f[k + 1])
+                    return bad(err, line, "loot needs 'resref chance min-CR max-CR'");
+                *f[k + 1]++ = '\0';
+            }
+            ch = strtol(f[0], &end, 10);
+            if (end == f[0] || *end || ch < 1 || ch > 100)
+                return bad(err, line, "loot chance must be a whole number 1-100");
+            lo = roster_parse_cr(f[1]);
+            hi = roster_parse_cr(f[2]);
+            if (lo < 0 || hi < 0)
+                return bad(err, line, "CR must be decimal with at most two places");
+            if (lo > hi)
+                return bad(err, line, "loot min CR is above max CR");
+            if (cur->nloot == ROSTER_POOL)
+                return bad(err, line, "too many loot entries in this theme");
+            for (i = 0; i < cur->nloot; i++)
+                if (!strcmp(cur->loot[i].resref, rest))
+                    return bad(err, line, "duplicate loot entry");
+            lt = &cur->loot[cur->nloot++];
+            strcpy(lt->resref, rest);
+            lt->chance = (int)ch;
+            lt->min_cr = lo;
+            lt->max_cr = hi;
+        } else if (!strcmp(buf, "gold")) {
+            char *end;
+            long g;
+            if (!cur)
+                return bad(err, line, "gold before any theme");
+            if (cur->gold_per_cr)
+                return bad(err, line, "gold given twice for this theme");
+            g = strtol(rest, &end, 10);
+            if (end == rest || *end || g < 1 || g > 1000)
+                return bad(err, line, "gold per CR must be a whole number 1-1000");
+            cur->gold_per_cr = (int)g;
         } else if (!strcmp(buf, "ambience")) {
             uint32_t col[3];
             char *tok = rest, *next;

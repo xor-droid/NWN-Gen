@@ -65,6 +65,10 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     size_t nk = 0, a, k, i, nrooms = 0, ndoors = 0;
     long ncreat = 0, nboss = 0, ndecor = 0, nlight = 0, ncont = 0;
     int totcr = 0, maxreg = 0, bosscr = 0, bossarea = -1;
+    long gold_total = 0, items_total = 0, boss_gold = 0;
+    kind_count loot[32];
+    size_t nl2 = 0;
+    char bossloot[2][17] = {"", ""};
     char bossbp[17] = "";
     spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only};
 
@@ -92,6 +96,29 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
         for (k = 0; k < ar->nsp; k++) {
             const spawn_pt *p = &ar->sp[k];
             int ri, cr = 0, role = -1, isboss = p->kind != 'C';
+            if (p->kind == 'C' || p->kind == 'B') {
+                int q;
+                for (q = 0; q < 2; q++) {
+                    size_t z;
+                    if (!p->loot[q][0])
+                        continue;
+                    items_total++;
+                    for (z = 0; z < nl2 && strcmp(loot[z].bp, p->loot[q]); z++)
+                        ;
+                    if (z == nl2 && nl2 < sizeof loot / sizeof loot[0]) {
+                        snprintf(loot[nl2].bp, sizeof loot[nl2].bp, "%s", p->loot[q]);
+                        loot[nl2].n = 0;
+                        nl2++;
+                    }
+                    if (z < nl2)
+                        loot[z].n++;
+                    if (p->kind == 'B')
+                        snprintf(bossloot[q], sizeof bossloot[q], "%s", p->loot[q]);
+                }
+                gold_total += p->gold;
+                if (p->kind == 'B')
+                    boss_gold = p->gold;
+            }
             if (p->kind == 'D') nd++;
             else if (p->kind == 'L') nl++;
             else if (p->kind == 'X') nx++;
@@ -158,6 +185,14 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
                 bossbp, bosscr / 100, bosscr % 100, bossarea + 1, ro->vault, ro->relic);
         put(&b, "  Loot:       %ld lootable %s plus the vault (the vault's stock treasure script may add items)\n", ncont, plural(ncont, "container", "containers"));
         put(&b, "  Decor:      %ld props, %ld light %s\n", ndecor, nlight, plural(nlight, "source", "sources"));
+        if (items_total || gold_total) {
+            size_t z;
+            put(&b, "\n  Carried loot (level-scaled by creature CR, fixed by the seed): %ld %s, %ld gold\n", items_total, plural(items_total, "item", "items"), gold_total);
+            for (z = 0; z < nl2; z++)
+                put(&b, "    %-22s x %d\n", loot[z].bp, loot[z].n);
+            if (bossarea >= 0)
+                put(&b, "    boss carries: %s%s%s%s and %ld gold (plus the key)\n", bossloot[0][0] ? bossloot[0] : "no item", bossloot[1][0] ? ", " : "", bossloot[1], "", boss_gold);
+        }
     }
     put(&b, "\n  Creature CRs, level and party figures are heuristics from the generator, not playtested balance.\n");
     return b.s;

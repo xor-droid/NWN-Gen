@@ -17,6 +17,7 @@ For each seed, `nwndgen --recipe` builds a module of linked areas (for example "
 * **Creatures and a goal.** One theme per seed (goblins, kobolds or the restless dead, from `assets/roster.txt`) supplies stock hostile
   creatures sized to the party's level and size. The boss in the last room holds a key to a plot-protected chest containing the relic.
   Small compiled scripts spawn everything when the first player enters each area and advance a three-step journal entry.
+* **Level-scaled loot (optional).** Creatures carry items and gold chosen from the seed by their challenge rating; the band's level raises gold.
 * **Less-empty rooms (optional).** Props, light sources, unlocked containers and a per-theme ambient colour; decorative floor tiles
   (`tilepack-rich`).
 * **Corridors with doors (optional, newest).** Rooms joined by the stock 5 m corridor kit instead of wide strips, with plain closed,

@@ -282,5 +282,36 @@ r=$(sed -n 's/^  Output SHA-256: //p' "$T/sum.txt"); [ "${#r}" -eq 64 ] && ok ||
 "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_test.txt" --seed 2 --output "$T/k/sum2.mod" --force > "$T/sum2.txt" 2>&1 || bad "summary run (no roster)"
 grep -q "Theme:      none" "$T/sum2.txt" && ! grep -q "Creatures (" "$T/sum2.txt" && ok || bad "summary without a roster"
 
+
+# --- level-scaled loot (roster loot / gold lines) --------------------------------------------------
+cp "$HERE/data/roster_loot_test.txt" "$FX/"
+{ cat "$FX/recipe_test.txt"; echo "roster roster_loot_test.txt"; echo "scripts scripts"; } > "$FX/recipe_loot.txt"
+mkdir "$T/l"
+alpha=0
+for seed in 1 2 3 4 5 6 7 8 12345; do
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_loot.txt" --seed $seed --output "$T/l/l$seed.mod" --manifest "$T/l/l$seed.txt" >/dev/null || { bad "loot generate seed $seed"; continue; }
+  "$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_loot_test.txt" "$T/l/l$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck loot seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+  if grep -q '^theme=alpha' "$T/l/l$seed.txt"; then
+    alpha=$((alpha+1))
+    grep -q '^loot_algorithm=loot/1' "$T/l/l$seed.txt" && grep -q '^loot\.ca=items [0-9]* gold [1-9]' "$T/l/l$seed.txt" && ok || bad "loot manifest seed $seed"
+    grep -Eq '^loot: [1-9][0-9]* item' "$T/dg.txt" && ok || bad "dgcheck sees no carried loot (seed $seed)"
+  else
+    grep -q '^loot_algorithm=' "$T/l/l$seed.txt" && bad "theme without loot lines wrote loot keys (seed $seed)" || ok
+  fi
+done
+[ "$alpha" -gt 0 ] && ok || bad "no loot test seed used the loot theme"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_loot.txt" --seed 12345 --output "$T/l/again.mod" --force >/dev/null && cmp -s "$T/l/again.mod" "$T/l/l12345.mod" && ok || bad "loot build is not reproducible"
+# same layout and creatures with and without loot lines
+"$BUILD/dgdump" "$FX/recipe_deco.txt" 12345 "$FX/base.ifo" > "$T/l/d1.txt" 2>/dev/null; "$BUILD/dgdump" "$FX/recipe_loot.txt" 12345 "$FX/base.ifo" > "$T/l/d2.txt" 2>/dev/null
+cmp -s "$T/l/d1.txt" "$T/l/d2.txt" && ok || bad "loot lines moved the layout"
+# a roster without loot lines writes no loot keys (the compiled script mentions the variables, so the manifest is what we can grep)
+grep -q '^loot' "$T/s1/d12345.txt" && bad "a roster without loot lines wrote loot manifest keys" || ok
+# negative: the validator re-reads the roster, so loot outside its list/CR range, or gold the theme does not give, must show
+for seed in 1 2 3 4 5 6 7 8 12345; do grep -q '^theme=alpha' "$T/l/l$seed.txt" && { aseed=$seed; break; }; done
+sed 's/^loot t_l_low .*/loot t_l_low 100 2.00 2.00/' "$FX/roster_loot_test.txt" > "$FX/roster_loot_band.txt"
+checkfail "dgcheck rejects loot outside its CR range" "$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_loot_band.txt" "$T/l/l$aseed.mod"
+sed '/^gold /d' "$FX/roster_loot_test.txt" > "$FX/roster_loot_nogold.txt"
+checkfail "dgcheck rejects gold the theme does not give" "$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_loot_nogold.txt" "$T/l/l$aseed.mod"
+
 echo "dungeon e2e: $pass passed, $fail failed"
 [ $fail -eq 0 ]

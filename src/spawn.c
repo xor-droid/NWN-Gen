@@ -60,6 +60,8 @@ static void put(dungeon_area *a, char kind, const char *bp, int cx, int cy, int 
     p->cy = cy;
     p->face = face;
     p->ox = p->oy = 0;
+    memset(p->loot, 0, sizeof p->loot);
+    p->gold = 0;
 }
 
 /* Boss in the middle of the last room of the last area, vault chest on a free neighbouring cell. */
@@ -384,6 +386,75 @@ static void plan_deco(dungeon_area *a, const roster_theme *t, uint64_t seed)
     free(wt);
 }
 
+/* CR (1/100) of a creature blueprint within the theme; 0 when the theme does not list it */
+static int theme_cr(const roster_theme *t, const char *bp)
+{
+    int role;
+    size_t i;
+    for (role = 0; role < ROLE_N; role++)
+        for (i = 0; i < t->n[role]; i++)
+            if (!strcmp(t->e[role][i].resref, bp))
+                return t->e[role][i].cr;
+    return 0;
+}
+
+/* Level-scaled loot: what each creature carries is fixed here, from the seed, so a module always drops the same things.
+ * Loot entries apply by the creature's CR; gold grows with CR and with the band's average character level; a boss always
+ * carries two items. Own RNG domain, drawn after
+ * everything else, so layouts, creatures and scenery never move when the loot lines change. */
+static void plan_loot(dungeon_area *a, const roster_theme *t, uint64_t seed, const spawn_cfg *sc)
+{
+    sm64 rng;
+    size_t k, e;
+    long avg = ((long)sc->min_level + (long)sc->max_level) / 2; /* gold grows 25% per character level above 1 */
+    if (avg < 1)
+        avg = 1;
+    if (!t->nloot && !t->gold_per_cr)
+        return;
+    sm64_seed(&rng, domain_seed("nwndgen/loot/1", 15, seed, a->resref));
+    for (k = 0; k < a->nsp; k++) {
+        spawn_pt *p = &a->sp[k];
+        int cr, got = 0, boss = p->kind == 'B';
+        if (p->kind != 'C' && !boss)
+            continue;
+        cr = theme_cr(t, p->bp);
+        if (!boss) {
+            for (e = 0; e < t->nloot && got < 2; e++) {
+                const roster_loot *lt = &t->loot[e];
+                if (cr >= lt->min_cr && cr <= lt->max_cr && rnd(&rng, 100) < lt->chance)
+                    strcpy(p->loot[got++], lt->resref);
+            }
+        } else {
+            char taken[ROSTER_POOL] = {0};
+            while (got < 2) {
+                int total = 0, w;
+                for (e = 0; e < t->nloot; e++)
+                    if (!taken[e] && cr >= t->loot[e].min_cr && cr <= t->loot[e].max_cr)
+                        total += t->loot[e].chance;
+                if (!total)
+                    break;
+                w = rnd(&rng, total);
+                for (e = 0; e < t->nloot; e++) {
+                    if (taken[e] || cr < t->loot[e].min_cr || cr > t->loot[e].max_cr)
+                        continue;
+                    if (w < t->loot[e].chance)
+                        break;
+                    w -= t->loot[e].chance;
+                }
+                taken[e] = 1;
+                strcpy(p->loot[got++], t->loot[e].resref);
+            }
+        }
+        if (t->gold_per_cr) {
+            long crh = cr < 25 ? 25 : cr;
+            long gp = (long)t->gold_per_cr * crh * (50 + rnd(&rng, 101)) * (100 + 25 * (avg - 1)) / 1000000;
+            if (boss)
+                gp *= 3;
+            p->gold = (int)(gp < 1 ? 1 : gp);
+        }
+    }
+}
+
 int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *module_tag, char *err)
 {
     const roster *ro = sc->ro;
@@ -495,6 +566,7 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
         }
         if (!sc->boss_only)
             plan_deco(a, th, seed);
+        plan_loot(a, th, seed, sc);
         free(cand);
     }
     return 0;

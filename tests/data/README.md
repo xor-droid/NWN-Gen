@@ -8,3 +8,4 @@ If the layout algorithm changes on purpose, bump `DUNGEON_ALGORITHM_VERSION` and
 `build/mkdgfix` also writes the corridor-kit fixtures: `tilepack_kit.txt` (the synthetic pack plus `kit` records), `tileset_kit.set` (one tile per kit
 record whose raw corners/edges/door slot are the inverse rotation of what the pack says, so rotation is tested end to end) and `tpl_door.git` (a donor
 door that is locked, plot and open, to prove the generator resets them). They are not committed; `dungeon_e2e.sh` builds them each run.
+`roster_loot_test.txt` is `roster_deco_test.txt` plus `gold` and `loot` lines (certain drops in two CR bands, a 50% band above CR 3) on the first theme, for the loot tests.

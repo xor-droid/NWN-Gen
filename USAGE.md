@@ -180,6 +180,8 @@ theme goblins Goblins               id, then the text used in the journal ("Gobl
 minion nw_goblina 0.25              role (minion|standard|elite|boss), UTC resref, CR (two decimals max)
 prop|light|container <utp resref> <weight>   scenery for the theme (optional, see Scenery below)
 ambience RRGGBB RRGGBB RRGGBB amount clip       area light for the theme (optional)
+loot <uti resref> <chance> <min CR> <max CR>   level-scaled item a creature may carry (optional, see Level-scaled loot)
+gold <gp per CR>                    gold the theme's creatures carry (optional)
 ```
 
 Every blueprint must be a stock creature in the hostile faction with the CR written in the roster;
@@ -191,6 +193,34 @@ with `make scripts NWN_ROOT=... NWN_USERDIR=...` (official `nwn_script_comp`) af
 The manifest records the roster and script hashes, the chosen theme and per-area marker counts.
 **Generated and validated, not playable until loaded in the game.**
 
+
+
+#### Level-scaled loot (same `roster`)
+
+Creatures can carry items and gold, decided at generation time from the seed:
+
+```
+gold 8                              creatures carry about 8 gp per point of CR (50%-150%), bosses three times that
+loot nw_it_mpotion001 10 0.00 1.50  item (UTI resref), chance in percent per creature, min CR, max CR
+loot nw_it_gem010 8 1.50 4.00       an entry applies only to creatures whose CR is in its range
+```
+
+Each regular creature rolls every entry whose CR range includes its own CR and keeps at most two hits; a boss gets up to two eligible items
+chosen by chance weight. Gold is `gold × CR` (CR below 0.25 counts as 0.25), randomised 50%-150%, and grows 25% per character level of the band's
+average above 1 (so a level 5-6 party finds more gold than a level 1-2 one); a boss carries three times as much. Items scale by the creature's
+CR, which itself follows the level band and party size through the CR caps and budgets, so stronger creatures carry better things. With the shipped
+roster, creature CRs top out at 2.00, so the bands above CR 2.50 start to matter only once stronger creatures are added to a theme. The decisions use
+their own RNG stream (`SHA-256("nwndgen/loot/1\0" || seed_be64 || resref)`), so layouts, creatures and scenery never move when loot lines change;
+the algorithm id is `loot/1` (manifest `loot_algorithm=`, `loot.<area>=items N gold G`). A theme without `loot`/`gold` lines behaves as before.
+
+How it reaches the game: the generator puts `scel_loot`, `scel_loot2` (item resrefs) and `scel_gold` on the creature's marker waypoint as local variables;
+`scel_enter` creates the items and a stack of `nw_it_gold001` on the creature, and, when any marker carries loot, sets `X2_L_NOTREASURE` on the module
+before spawning anything so the stock random monster treasure (an OnSpawn roll that is not seeded) does not add to it. This relies on the stock spawn
+script (`nw_c2_default9`) being the creature's spawn script; `nwnpack roster-check` reports any roster creature that uses another one, checks that every loot item
+exists and is not plot or cursed, and prints each item's value so the bands can be reviewed. `dgcheck` verifies that only creature and boss markers carry
+loot, that each item is in its theme's list and CR range, and (with `--root`) that each item exists. **Whether the items and gold show up in the corpse in
+game, and whether the random treasure is really suppressed, is unverified until a module is loaded.** Changing `scel_enter` changes the bytes of every
+module built with roster and scripts, including older ones rebuilt from the same seed.
 
 ### End-of-run summary
 

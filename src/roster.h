@@ -9,6 +9,9 @@
  *   prop|light|container <utp resref> <weight>        scenery for the theme (weight 1-100, optional)
  *   ambience <ambient> <diffuse> <fog> <amount> <clip>  area light for the theme: three RRGGBB hex colours,
  *                                                       fog amount 0-15, fog clip distance 20-150 (optional)
+ *   loot <uti resref> <chance> <min CR> <max CR>        item a creature of the theme may carry when its CR is in the range;
+ *                                                       chance is a percent per creature (1-100); a boss gets up to two eligible items, picked by chance weight (optional)
+ *   gold <gp per CR>                                    creatures carry about this much gold per point of CR (optional)
  *
  * Every blueprint is a stock hostile creature/placeable/item that exists in the base game;
  * `nwnpack roster-check` verifies that against an install. '#' starts a comment line. */
@@ -27,6 +30,7 @@ enum { ROLE_MINION, ROLE_STANDARD, ROLE_ELITE, ROLE_BOSS, ROLE_N };
 extern const char *const ROLE_NAME[ROLE_N];
 
 typedef struct { char resref[17]; int cr; } roster_entry; /* cr in 1/100 */
+typedef struct { char resref[17]; int chance, min_cr, max_cr; } roster_loot; /* CRs in 1/100 */
 enum { DECO_PROP, DECO_LIGHT, DECO_CONTAINER, DECO_N };
 extern const char *const DECO_NAME[DECO_N];
 typedef struct {
@@ -38,6 +42,9 @@ typedef struct {
     int has_ambience;
     uint32_t amb_ambient, amb_diffuse, amb_fog; /* ARE colour DWORDs: R | G<<8 | B<<16 */
     int amb_fog_amount, amb_fog_clip;
+    roster_loot loot[ROSTER_POOL];
+    size_t nloot;
+    int gold_per_cr;                 /* 0 = no gold */
 } roster_theme;
 typedef struct {
     roster_theme theme[ROSTER_THEMES];
@@ -50,7 +57,11 @@ typedef struct { const roster *ro; unsigned party, min_level, max_level; int bos
 
 /* A spawn marker: kind is one of C (creature) B (boss) T (boss with 1 hit point, boss_only runs) V (vault)
  * K (key item) R (relic item) D (decor prop) L (light) X (lootable container). */
-typedef struct { char kind; char bp[17]; int cx, cy, face; int ox, oy; /* tile corner offset: -1, 0 or 1 (3.5 m) */ } spawn_pt;
+typedef struct {
+    char kind; char bp[17]; int cx, cy, face; int ox, oy; /* tile corner offset: -1, 0 or 1 (3.5 m) */
+    char loot[2][17];   /* items a creature or boss carries (empty = none), see loot in the roster */
+    int gold;           /* gold pieces it carries */
+} spawn_pt;
 
 int roster_parse(const char *text, size_t len, roster *ro, char *err);
 /* "0.25" -> 25. Returns -1 on bad syntax. */
