@@ -9,7 +9,7 @@
 #include "config.h"
 #include "erf.h"
 
-#define GENERATOR_VERSION "0.7.0"
+#define GENERATOR_VERSION "0.7.1"
 /* Bump when PRNG, stream derivation, ordering or selection rules change. */
 #define ALGORITHM_VERSION "splitmix64-sha256slot/1"
 

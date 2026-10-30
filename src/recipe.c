@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "config.h"
 #include "util.h"
 
 static int resolve(char *dst, const char *dir, const char *rel, const char *key, int line, char *err)
@@ -73,7 +74,7 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     size_t pos = 0;
     int line = 0, seen_head = 0;
     unsigned have = 0; /* bitmask of single-use keys */
-    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192 };
+    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072 };
 
     memset(r, 0, sizeof *r);
     while (pos < len) {
@@ -147,6 +148,20 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
                 return -1;
             }
             r->henchmen = (int)v;
+        } else if (!strcmp(buf, "seed") || !strcmp(buf, "party_size") || !strcmp(buf, "min_level") || !strcmp(buf, "max_level")) {
+            unsigned bit = buf[0] == 's' ? H_SEED : buf[0] == 'p' ? H_PARTY : buf[1] == 'i' ? H_MINL : H_MAXL;
+            uint32_t v32 = 0;
+            if (have & bit) { set_err(err, "recipe line %d: '%s' given twice", line, buf); return -1; }
+            have |= bit;
+            if (bit == H_SEED) {
+                if (parse_u64(rest, &r->run_seed) != 0) { set_err(err, "recipe line %d: seed must be an unsigned 64-bit decimal", line); return -1; }
+                r->has_seed = 1;
+            } else if (parse_uint_in(rest, 1, bit == H_PARTY ? MAX_PARTY_LIMIT : MAX_LEVEL_LIMIT, &v32) != 0) {
+                set_err(err, "recipe line %d: %s must be a whole number 1-%u", line, buf, bit == H_PARTY ? MAX_PARTY_LIMIT : MAX_LEVEL_LIMIT);
+                return -1;
+            } else if (bit == H_PARTY) { r->run_party = v32; r->has_party = 1; }
+            else if (bit == H_MINL) { r->run_min_lvl = v32; r->has_min_lvl = 1; }
+            else { r->run_max_lvl = v32; r->has_max_lvl = 1; }
         } else if (!strcmp(buf, "template_door")) {
             if (have & H_DOOR_T) { set_err(err, "recipe line %d: 'template_door' given twice", line); return -1; }
             have |= H_DOOR_T;

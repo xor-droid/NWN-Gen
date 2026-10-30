@@ -352,5 +352,17 @@ badruns "henchmen not a number" --recipe "$FX/r_hx.txt"
 sed 's/^henchmen 2/henchmen 4/' "$FX/recipe_hench.txt" > "$FX/r_h4.txt"
 badruns "more henchmen than roster families" --recipe "$FX/r_h4.txt"
 
+# --- run defaults in the recipe: seed, party_size, min_level, max_level -------------------------------
+{ cat "$FX/recipe_hench.txt"; printf 'seed 2\nparty_size 1\nmin_level 3\nmax_level 4\n'; } > "$FX/recipe_rundef.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_rundef.txt" --output "$T/h/rd.mod" --manifest "$T/h/rd.txt" >/dev/null && ok || bad "recipe-only run (no --seed)"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_hench.txt" --seed 2 --party-size 1 --min-level 3 --max-level 4 --output "$T/h/cl.mod" >/dev/null && cmp -s "$T/h/rd.mod" "$T/h/cl.mod" && ok || bad "recipe defaults differ from the same values on the command line"
+grep -q '^seed=2$' "$T/h/rd.txt" && grep -q '^min_level=3$' "$T/h/rd.txt" && grep -q '^max_level=4$' "$T/h/rd.txt" && ok || bad "recipe defaults not in the manifest"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_rundef.txt" --seed 3 --output "$T/h/ov.mod" --manifest "$T/h/ov.txt" >/dev/null && grep -q '^seed=3$' "$T/h/ov.txt" && ! cmp -s "$T/h/rd.mod" "$T/h/ov.mod" && ok || bad "command line --seed does not override the recipe"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_rundef.txt" --max-level 3 --output "$T/h/ov2.mod" --manifest "$T/h/ov2.txt" >/dev/null && grep -q '^max_level=3$' "$T/h/ov2.txt" && ok || bad "command line --max-level does not override the recipe"
+badruns "recipe run default outside support" --recipe "$FX/recipe_rundef.txt" --max-level 9
+{ cat "$FX/recipe_hench.txt"; echo "seed nope"; } > "$FX/r_badseed.txt"
+badruns "recipe seed not a number" --recipe "$FX/r_badseed.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_hench.txt" --output "$T/bad.mod" >/dev/null 2>"$T/err.txt"; [ $? -eq 2 ] && grep -q "seed line in the recipe" "$T/err.txt" && ok || bad "missing seed message"
+
 echo "dungeon e2e: $pass passed, $fail failed"
 [ $fail -eq 0 ]

@@ -514,6 +514,26 @@ static void test_recipe(void)
     char big[2048];
 #define RP(t) recipe_parse((t), strlen(t), "dir", &r, err)
     CHECK(RP(GOOD_RECIPE) == 0);
+    CHECK(RP(GOOD_RECIPE) == 0 && !r.has_seed && !r.has_party && !r.has_min_lvl && !r.has_max_lvl); /* no run defaults unless written */
+    {
+        char rd[1024];
+        snprintf(rd, sizeof rd, "%sseed 18446744073709551615\nparty_size 3\nmin_level 2\nmax_level 40\n", GOOD_RECIPE);
+        CHECK(RP(rd) == 0 && r.has_seed && r.run_seed == 18446744073709551615ull && r.run_party == 3 && r.run_min_lvl == 2 && r.run_max_lvl == 40);
+        CHECK(r.has_party && r.has_min_lvl && r.has_max_lvl);
+        snprintf(rd, sizeof rd, "%sseed 0\n", GOOD_RECIPE);
+        CHECK(RP(rd) == 0 && r.has_seed && r.run_seed == 0);
+#define BAD_RUN(line, frag) \
+    do { snprintf(rd, sizeof rd, "%s%s", GOOD_RECIPE, line); err[0] = 0; CHECK(RP(rd) != 0 && strstr(err, frag)); } while (0)
+        BAD_RUN("seed 18446744073709551616\n", "seed");
+        BAD_RUN("seed -1\n", "seed");
+        BAD_RUN("seed 1\nseed 2\n", "twice");
+        BAD_RUN("party_size 0\n", "party_size");
+        BAD_RUN("party_size 33\n", "party_size");
+        BAD_RUN("min_level 0\n", "min_level");
+        BAD_RUN("max_level 41\n", "max_level");
+        BAD_RUN("max_level x\n", "max_level");
+        BAD_RUN("min_level 1\nmin_level 2\n", "twice");
+    }
     CHECK(r.nareas == 2 && r.areas[0].w == 10 && r.areas[0].h == 8 && r.areas[0].rooms == 3);
     CHECK(!strcmp(r.areas[0].name, "First Area") && !strcmp(r.areas[1].resref, "b_2"));
     CHECK(!strcmp(r.tilepack, "dir/tp.txt") && !strcmp(r.template_git, "/abs/g.git"));

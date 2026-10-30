@@ -24,7 +24,7 @@
 
 static const char USAGE[] =
     "usage: nwndgen --game nwn1|nwn2 --base BASE.mod\n"
-    "               (--templates CATALOG.tsv | --recipe RECIPE.txt) --seed N\n"
+    "               (--templates CATALOG.tsv | --recipe RECIPE.txt) [--seed N]\n"
     "               --output OUT.mod [--party-size N] [--min-level N]\n"
     "               [--max-level N] [--manifest OUT.txt] [--force]\n"
     "       nwndgen --help | --version\n"
@@ -36,8 +36,11 @@ static const char USAGE[] =
     "  --templates PATH   variant catalog (7 tab-separated columns, no header)\n"
     "  --recipe PATH      procedural dungeon recipe (nwn1 only): areas are generated\n"
     "                     fresh from the seed; replaces --templates\n"
-    "  --seed N           unsigned 64-bit decimal seed (required)\n"
-    "  --party-size N     adventuring player characters, 1-32 (default 1)\n"
+    "  --seed N           unsigned 64-bit decimal seed (required unless the recipe\n"
+    "                     has a seed line)\n"
+    "  --party-size N     adventuring player characters, 1-32 (default 1; a recipe\n"
+    "                     may set party_size, min_level, max_level and seed as\n"
+    "                     defaults, and these options override them)\n"
     "  --min-level N      lowest supported character level, 1-40 (default 1)\n"
     "  --max-level N      highest supported character level, 1-40 (default 2)\n"
     "  --output PATH      module to write (required); existing files are kept\n"
@@ -337,6 +340,7 @@ int main(int argc, char **argv)
     const char *val[O_COUNT] = {0};
     int seen[O_COUNT] = {0};
     config cfg;
+    int have_rseed;
     const game_profile *game;
     char err[ERRLEN] = "";
     int i, o, rc = EXIT_FAIL;
@@ -406,12 +410,35 @@ int main(int argc, char **argv)
         return usage_error("--templates and --recipe are mutually exclusive", NULL);
     if (val[O_RECIPE] && game != &GAME_NWN1)
         return usage_error("--recipe supports --game nwn1 only (the tile pack is an NWN1 tileset)", NULL);
-    if (!val[O_SEED])
-        return usage_error("missing required option", "--seed");
+    have_rseed = 0;
+    if (val[O_RECIPE]) { /* run defaults written in the recipe; the options below override them */
+        recipe pre;
+        uint8_t *pb = NULL;
+        size_t plen0 = 0;
+        char *pd = dir_of(val[O_RECIPE]), m[ERRLEN + 600];
+        int prc = read_file(val[O_RECIPE], &pb, &plen0, err);
+        if (prc == 0 && recipe_parse((const char *)pb, plen0, pd, &pre, err) != 0) {
+            snprintf(m, sizeof m, "recipe '%s': %s", val[O_RECIPE], err);
+            set_err(err, "%s", m);
+            prc = -1;
+        }
+        free(pb);
+        free(pd);
+        if (prc != 0) { /* same failure as recipe_run would report */
+            fprintf(stderr, "nwndgen: %s\n", err);
+            return EXIT_FAIL;
+        }
+        if (pre.has_seed) { cfg.seed = pre.run_seed; have_rseed = 1; }
+        if (pre.has_party) cfg.party_size = pre.run_party;
+        if (pre.has_min_lvl) cfg.min_level = pre.run_min_lvl;
+        if (pre.has_max_lvl) cfg.max_level = pre.run_max_lvl;
+    }
+    if (!val[O_SEED] && !have_rseed)
+        return usage_error("missing required option --seed (or a seed line in the recipe)", NULL);
     if (!val[O_OUTPUT])
         return usage_error("missing required option", "--output");
 
-    if (parse_u64(val[O_SEED], &cfg.seed) != 0)
+    if (val[O_SEED] && parse_u64(val[O_SEED], &cfg.seed) != 0)
         return usage_error("invalid seed (need unsigned 64-bit decimal):", val[O_SEED]);
     if (val[O_PARTY] &&
         parse_uint_in(val[O_PARTY], 1, MAX_PARTY_LIMIT, &cfg.party_size) != 0)
