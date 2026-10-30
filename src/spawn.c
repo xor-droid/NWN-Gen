@@ -404,15 +404,25 @@ static int theme_cr(const roster_theme *t, const char *bp)
  * Loot entries apply by the creature's CR; gold grows with CR and with the band's average character level; a boss always
  * carries two items. Own RNG domain, drawn after
  * everything else, so layouts, creatures and scenery never move when the loot lines change. */
+/* An item's chance after the loot_amount scale: halved, or 1.5x capped at a certain drop; never below 1%. */
+static int scaled_chance(int chance, int pct)
+{
+    int c = chance * pct / 100;
+    return c > 100 ? 100 : c < 1 ? 1 : c;
+}
+
 static void plan_loot(dungeon_area *a, const roster_theme *t, uint64_t seed, const spawn_cfg *sc)
 {
     sm64 rng;
     size_t k, e;
     long avg = ((long)sc->min_level + (long)sc->max_level) / 2; /* gold grows 25% per character level above 1 */
+    int ipct, gpct;
     if (avg < 1)
         avg = 1;
     if (!t->nloot && !t->gold_per_cr)
         return;
+    ipct = sc->loot_amount == 1 ? 50 : sc->loot_amount == 2 ? 150 : 100; /* item chance scale; draws are unchanged, so mid stays as it was */
+    gpct = sc->loot_amount == 1 ? 50 : sc->loot_amount == 2 ? 200 : 100; /* gold scale */
     sm64_seed(&rng, domain_seed("nwndgen/loot/1", 15, seed, a->resref));
     for (k = 0; k < a->nsp; k++) {
         spawn_pt *p = &a->sp[k];
@@ -423,7 +433,7 @@ static void plan_loot(dungeon_area *a, const roster_theme *t, uint64_t seed, con
         if (!boss) {
             for (e = 0; e < t->nloot && got < 2; e++) {
                 const roster_loot *lt = &t->loot[e];
-                if (cr >= lt->min_cr && cr <= lt->max_cr && rnd(&rng, 100) < lt->chance)
+                if (cr >= lt->min_cr && cr <= lt->max_cr && rnd(&rng, 100) < scaled_chance(lt->chance, ipct))
                     strcpy(p->loot[got++], lt->resref);
             }
         } else {
@@ -452,6 +462,7 @@ static void plan_loot(dungeon_area *a, const roster_theme *t, uint64_t seed, con
             long gp = (long)t->gold_per_cr * crh * (50 + rnd(&rng, 101)) * (100 + 25 * (avg - 1)) / 1000000;
             if (boss)
                 gp *= 3;
+            gp = gp * gpct / 100;
             p->gold = (int)(gp < 1 ? 1 : gp);
         }
     }

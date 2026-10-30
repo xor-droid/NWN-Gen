@@ -13,12 +13,13 @@
  *   scripts <dir>                        (optional) directory holding scel_enter/scel_acquire .nss/.ncs
  *   spawn_mode full|boss_only|loot_test  (optional) boss_only = just the boss, with 1 hit point; loot_test = five weak creatures + weak boss, all in the first area
  *   henchmen N                           (optional, 0-5, default 0) N stock henchmen from the roster join the first player
+ *   loot_amount low|mid|high           (optional, default mid) how much creatures carry: low = half the item chances and gold, high = 1.5x the chances (at most 100%) and double gold
  *   seed N                              (optional) run defaults: unsigned 64-bit seed, party size 1-32, character levels 1-40;
  *   party_size N                         the command-line options of the same name override them
  *   min_level N | max_level N
  *   template_door tpl_door.git           (optional) donor GIT with one stock door; needed by doors plain
  *   corridors wide|kit                  (optional) kit = stock corridor-kit pieces (needs a tilepack with kit records)
- *   doors none|plain                    (optional) plain = a closed, unlocked door in each kit corridor; needs corridors kit
+ *   doors none|plain|mixed              (optional) plain = a closed, unlocked door in each kit corridor; mixed = the same with every door look the pack has; both need corridors kit
  *
  * '#' starts a comment line. Fields are separated by single spaces. */
 #ifndef NWNDGEN_RECIPE_H
@@ -49,11 +50,12 @@ typedef struct {
     int boss_only; /* spawn_mode boss_only: no minions, the boss has 1 hit point (quick test runs) */
     int loot_test;     /* spawn_mode loot_test: five creatures and the boss, all in the first area, 1 hit point and unarmed (loot checks) */
     int henchmen;      /* henchmen N: stock henchmen from the roster that join the first player (needs roster and scripts) */
+    int loot_amount;   /* loot_amount low|mid|high: 1 = low, 0 = mid (default), 2 = high; scales item chances and gold (needs roster and scripts) */
     int has_seed, has_party, has_min_lvl, has_max_lvl; /* run defaults given in the recipe; the command line overrides them */
     uint64_t run_seed;
     unsigned run_party, run_min_lvl, run_max_lvl;
     int kit_corridors; /* corridors kit: narrow stock corridor pieces instead of full-floor 10 m corridors */
-    int doors;         /* doors plain: one closed, unlocked stock door in each kit corridor (needs corridors kit) */
+    int doors;         /* 1 = doors plain: one closed, unlocked stock door in each kit corridor; 2 = doors mixed: the same, with every door look the pack has (needs corridors kit) */
     char module_name[128], module_tag[33], module_desc[512];
     unsigned min_level, max_level, min_party, max_party;
     recipe_area areas[RECIPE_MAX_AREAS];

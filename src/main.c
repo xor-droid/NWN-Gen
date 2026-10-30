@@ -294,6 +294,7 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.boss_only = c->r.boss_only;
         sc.loot_test = c->r.loot_test;
         sc.henchmen = c->r.henchmen;
+        sc.loot_amount = c->r.loot_amount;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -529,9 +530,23 @@ int main(int argc, char **argv)
                 append(&manifest, &mlen, &mcap, "template_door_sha256=%s\n", vh);
             }
             if (c->r.kit_corridors) {
-                append(&manifest, &mlen, &mcap, "corridors=kit\ndoors=%s\n", c->r.doors ? "plain" : "none");
+                append(&manifest, &mlen, &mcap, "corridors=kit\ndoors=%s\n", c->r.doors == 2 ? "mixed" : c->r.doors ? "plain" : "none");
                 for (s = 0; s < c->d.n; s++)
                     append(&manifest, &mlen, &mcap, "doors.%s=%zu\n", c->d.area[s].resref, c->d.area[s].ndoor);
+                if (c->r.doors == 2) {
+                    int ln[256] = {0}, first = 1, lk;
+                    size_t dm;
+                    for (s = 0; s < c->d.n; s++)
+                        for (dm = 0; dm < c->d.area[s].ndoor; dm++)
+                            ln[c->d.area[s].door[dm].app & 255]++;
+                    append(&manifest, &mlen, &mcap, "door_looks=");
+                    for (lk = 0; lk < 256; lk++)
+                        if (ln[lk]) {
+                            append(&manifest, &mlen, &mcap, "%s%d:%d", first ? "" : ",", lk, ln[lk]);
+                            first = 0;
+                        }
+                    append(&manifest, &mlen, &mcap, "\n");
+                }
             }
             for (s = 0; s < c->d.n; s++)
                 append(&manifest, &mlen, &mcap, "area.%s=%dx%d rooms=%d layout_attempts=%d\n", c->d.area[s].resref,
@@ -569,6 +584,7 @@ int main(int argc, char **argv)
                 }
                 if (c->ro.theme[c->d.theme].nloot || c->ro.theme[c->d.theme].gold_per_cr) {
                     append(&manifest, &mlen, &mcap, "loot_algorithm=%s\n", LOOT_ALGORITHM_VERSION);
+                    append(&manifest, &mlen, &mcap, "loot_amount=%s\n", c->r.loot_amount == 1 ? "low" : c->r.loot_amount == 2 ? "high" : "mid");
                     for (s = 0; s < c->d.n; s++) {
                         long ni = 0, gp = 0;
                         for (k = 0; k < c->d.area[s].nsp; k++) {

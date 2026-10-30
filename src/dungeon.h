@@ -34,6 +34,7 @@ typedef struct {
     int tid, orient;
     int has_door;
     double dx, dy, dz, bearing;   /* door slot, tile-local metres; bearing in radians */
+    int app;                      /* door look: the Appearance (doortypes.2da row) of the slot, 22 unless the record says otherwise */
 } pack_kit;
 
 typedef struct {
@@ -74,7 +75,7 @@ uint64_t dungeon_area_seed(uint64_t seed, const char *resref);
 void dungeon_module_id(uint64_t seed, const char *tag, uint8_t out[16]);
 
 typedef struct { int tid, orient; } placed_tile;
-typedef struct { int cx, cy; double x, y, z, bearing; } dungeon_door;   /* world metres, bearing in radians */
+typedef struct { int cx, cy, app; double x, y, z, bearing; } dungeon_door;   /* world metres, bearing in radians */
 typedef struct {
     char resref[17];
     layout lay;

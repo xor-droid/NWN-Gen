@@ -139,6 +139,13 @@ exactly the same module as before. Kit builds record `dungeon_algorithm=dungeon-
 least 14x14 for 3 rooms and 16x16 for 4 (a cramped area is a clean error that says to use a larger one). Sweeping 300 seeds of a
 14/14/16 recipe never failed to lay out. The corridors and doors have been played in game by the author and work.
 
+`doors mixed` is `doors plain` plus a second door look. The corridor kit has two door tiles: `tdc01_g07_01` (door type 22, the look in every stock area) and
+`tdc01_g07_02` (door type 23, "CorryDoor1", which stock areas never use, so I had not seen its look before it was checked in game; its slot sits 0.51 m higher). With `mixed` each door picks one of
+the looks the pack holds for that corridor with equal chance, then a facing as usual; the door object is the same plain, closed, unlocked clone with only its `Appearance`
+changed. `plain` still uses type 22 only and its output bytes do not change when the pack also lists type 23. The pack record is `kit ... door X Y Z BEARING [LOOK]`
+(LOOK defaults to 22; `nwnpack tilepack-kit` adds the type-23 records, borrowing g07_01's lighting). The summary prints `Door looks:` and the manifest `door_looks=22:n,23:m`.
+Confirmed in game by the author: the type-23 door looks right and works.
+
 ### Creatures and an objective (optional: `roster` + `scripts`)
 
 Add two lines to the recipe and the dungeon gets monsters and a goal:
@@ -148,6 +155,7 @@ roster ../assets/roster.txt         creature roster, see below
 scripts ../assets/scripts           directory with scel_enter.{nss,ncs} and scel_acquire.{nss,ncs}
 spawn_mode full                     optional: full (default) or boss_only
 henchmen 0                        optional: 0-5 stock AI henchmen join the first player, see Henchmen below
+loot_amount mid                    optional: low, mid (default) or high, see Level-scaled loot
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions
@@ -212,6 +220,13 @@ The manifest records the roster and script hashes, the chosen theme and per-area
 
 
 #### Level-scaled loot (same `roster`)
+
+`loot_amount low|mid|high` (recipe key, default `mid`, needs `roster` and `scripts`) scales how much creatures carry without changing which creature gets what:
+the random draws are the same, only the item chances and the gold are scaled afterwards, so `mid` is byte-identical to leaving the key out and a creature that carries
+an item at `low` carries it at `mid` and `high` too. `low` halves every item chance and the gold; `high` multiplies the item chances by 1.5 (a drop is never above 100%)
+and doubles the gold. A creature still carries at most two items, and the boss always carries two (weighted picks, not chances), so for the boss only the gold scales.
+The summary names a non-default amount and the manifest records `loot_amount=`. Scenery containers and the vault are not affected.
+Confirmed in game by the author at `high` (kobold minions dropped 4 and 6 gold, which `mid` cannot produce at level 4; the planned items matched what dropped).
 
 Creatures can carry items and gold, decided at generation time from the seed:
 

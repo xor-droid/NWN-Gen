@@ -432,15 +432,17 @@ static int cmd_tilepack(const char *root, const char *outpath, int rich, int kit
             qsort(pool[i], npool[i], sizeof **pool, cmp_pe);
             for (q = 0; q < npool[i]; q++) APP("cell %s %u %d %d\n", sigs[i], pool[i][q].w, pool[i][q].tid, pool[i][q].o);
         }
+        int ref_tid = -1, unlit_tid = -1, have_ref = 0;
+        uint8_t ref_v[7] = {0};
         if (kit) {
             /* Corridor kit: stock-placed straight/elbow corridor pieces, the room-wall connector and the door straight.
              * Each record is one (tile, orientation) with its EFFECTIVE corners and edges, so the generator needs no
              * rotation maths; door slots are rotated here as well. */
-            static const struct { const char *model; int door; } KIT[8] = {
+            static const struct { const char *model; int door; } KIT[9] = {
                 {"tdc01_g01_01", 0}, {"tdc01_g01_02", 0}, {"tdc01_g01_03", 0}, {"tdc01_g02_01", 0}, {"tdc01_g02_02", 0}, {"tdc01_g02_03", 0},
-                {"tdc01_c13_01", 0}, {"tdc01_g07_01", 1}};
+                {"tdc01_c13_01", 0}, {"tdc01_g07_01", 1}, {"tdc01_g07_02", 2}};
             size_t kt, nk = 0;
-            for (kt = 0; kt < 8; kt++) {
+            for (kt = 0; kt < 9; kt++) {
                 size_t tid;
                 long placed = 0;
                 int o;
@@ -449,8 +451,12 @@ static int cmd_tilepack(const char *root, const char *outpath, int rich, int kit
                     if (!strcmp(ts.t[tid].model, KIT[kt].model)) { t = &ts.t[tid]; break; }
                 if (!t) { fprintf(stderr, "kit: %s is not in the tileset\n", KIT[kt].model); continue; }
                 for (i = 0; i < nuse; i++) if (use[i].tid == (int)tid) placed++;
-                if (!placed) { fprintf(stderr, "kit: %s is never placed by stock areas, skipped\n", KIT[kt].model); continue; }
-                if (!kit_tile_safe(&rm, t, ok, KIT[kt].door)) { fprintf(stderr, "kit: %s fails the walkmesh rule, skipped\n", KIT[kt].model); continue; }
+                if (KIT[kt].door == 1) ref_tid = (int)tid;
+                if (KIT[kt].door == 2 && !placed) unlit_tid = (int)tid; /* no stock lighting for it: borrows g07_01's below */
+                if (!placed && KIT[kt].door != 2) { fprintf(stderr, "kit: %s is never placed by stock areas, skipped\n", KIT[kt].model); continue; }
+                /* door 2 = tdc01_g07_02: the second corridor door look (door type 23). Stock never places it, so its orientations are
+                 * not proven by stock use; it has the same edges, walkmesh and slot shape as g07_01, only a different door type and slot height. */
+                if (!kit_tile_safe(&rm, t, ok, KIT[kt].door != 0)) { fprintf(stderr, "kit: %s fails the walkmesh rule, skipped\n", KIT[kt].model); continue; }
                 for (o = 0; o < 4; o++) {
                     tile_sig_t sg;
                     char cs[5], es[5];
@@ -469,13 +475,14 @@ static int cmd_tilepack(const char *root, const char *outpath, int rich, int kit
                     if (KIT[kt].door) {
                         double x = t->dslot[0].x, y = t->dslot[0].y, z = t->dslot[0].z, br = t->dslot[0].orient + 90.0 * o;
                         int r;
-                        if (t->ndslot != 1 || t->dslot[0].type != 22) continue;
+                        if (t->ndslot != 1 || (t->dslot[0].type != 22 && t->dslot[0].type != 23)) continue;
                         for (r = 0; r < o; r++) { double nx = -y; y = x; x = nx; }
                         while (br > 180.0) br -= 360.0;
                         if (x == 0) x = 0;
                         if (y == 0) y = 0;
                         if (z == 0) z = 0;
-                        APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0);
+                        if (t->dslot[0].type == 22) APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0);
+                        else APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f %d\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0, t->dslot[0].type);
                     } else
                         APP("kit %s %s %ld %d %d\n", cs, es, n ? n : 1, (int)tid, o);
                     nk++;
@@ -493,10 +500,13 @@ static int cmd_tilepack(const char *root, const char *outpath, int rich, int kit
                 if ((unsigned)(e - run) > bestn) { bestn = (unsigned)(e - run); best = run; }
                 run = e;
             }
+            if (lts[best].tid == ref_tid) { memcpy(ref_v, lts[best].v, 7); have_ref = 1; }
             APP("light %d %d %d %d %d %d %d %d\n", lts[best].tid, lts[best].v[0], lts[best].v[1], lts[best].v[2],
                 lts[best].v[3], lts[best].v[4], lts[best].v[5], lts[best].v[6]);
             i = j;
         }
+        if (unlit_tid >= 0 && have_ref) /* g07_02 has the same lighting flags in the tileset as g07_01 */
+            APP("light %d %d %d %d %d %d %d %d\n", unlit_tid, ref_v[0], ref_v[1], ref_v[2], ref_v[3], ref_v[4], ref_v[5], ref_v[6]);
         odata = (uint8_t *)out;
         if (write_temp(outpath, odata, olen, &tmp, err) != 0 || publish_temp(tmp, outpath, 1, err) != 0) { free(tmp); rc = die(NULL); }
         else { free(tmp); rc = 0; fprintf(stderr, "wrote %s\n", outpath); }

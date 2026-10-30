@@ -74,7 +74,7 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     size_t pos = 0;
     int line = 0, seen_head = 0;
     unsigned have = 0; /* bitmask of single-use keys */
-    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072 };
+    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144 };
 
     memset(r, 0, sizeof *r);
     while (pos < len) {
@@ -137,6 +137,12 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             if (!strcmp(rest, "boss_only")) r->boss_only = 1;
             else if (!strcmp(rest, "loot_test")) r->loot_test = 1;
             else if (strcmp(rest, "full")) { set_err(err, "recipe line %d: spawn_mode must be full, boss_only or loot_test", line); return -1; }
+        } else if (!strcmp(buf, "loot_amount")) {
+            if (have & H_LOOTAMT) { set_err(err, "recipe line %d: 'loot_amount' given twice", line); return -1; }
+            have |= H_LOOTAMT;
+            if (!strcmp(rest, "low")) r->loot_amount = 1;
+            else if (!strcmp(rest, "high")) r->loot_amount = 2;
+            else if (strcmp(rest, "mid")) { set_err(err, "recipe line %d: loot_amount must be low, mid or high", line); return -1; }
         } else if (!strcmp(buf, "henchmen")) {
             char *end;
             long v;
@@ -176,7 +182,8 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             if (have & H_DOORS) { set_err(err, "recipe line %d: 'doors' given twice", line); return -1; }
             have |= H_DOORS;
             if (!strcmp(rest, "plain")) r->doors = 1;
-            else if (strcmp(rest, "none")) { set_err(err, "recipe line %d: doors must be none or plain", line); return -1; }
+            else if (!strcmp(rest, "mixed")) r->doors = 2;
+            else if (strcmp(rest, "none")) { set_err(err, "recipe line %d: doors must be none, plain or mixed", line); return -1; }
         } else if (!strcmp(buf, "module_name")) {
             if (have & H_NAME) { set_err(err, "recipe line %d: 'module_name' given twice", line); return -1; }
             have |= H_NAME;
@@ -272,6 +279,10 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     }
     if (r->henchmen && !(have & H_ROSTER)) {
         set_err(err, "recipe: henchmen needs roster and scripts");
+        return -1;
+    }
+    if ((have & H_LOOTAMT) && !(have & H_ROSTER)) {
+        set_err(err, "recipe: loot_amount needs roster and scripts");
         return -1;
     }
     if ((r->boss_only || r->loot_test) && !(have & H_ROSTER)) {

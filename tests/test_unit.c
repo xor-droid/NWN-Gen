@@ -514,6 +514,24 @@ static void test_recipe(void)
     char big[2048];
 #define RP(t) recipe_parse((t), strlen(t), "dir", &r, err)
     CHECK(RP(GOOD_RECIPE) == 0);
+    CHECK(RP(GOOD_RECIPE) == 0 && r.loot_amount == 0);
+    {
+        char la[1024];
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nloot_amount high\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.loot_amount == 2);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nloot_amount low\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.loot_amount == 1);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nloot_amount mid\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.loot_amount == 0);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nloot_amount lots\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "low, mid or high"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nloot_amount low\nloot_amount high\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "twice"));
+        snprintf(la, sizeof la, "%sloot_amount low\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "needs roster"));
+        snprintf(la, sizeof la, "%sdoors mixed\ntemplate_door d.git\ncorridors kit\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.doors == 2);
+    }
     CHECK(RP(GOOD_RECIPE) == 0 && !r.has_seed && !r.has_party && !r.has_min_lvl && !r.has_max_lvl); /* no run defaults unless written */
     {
         char rd[1024];
@@ -731,16 +749,17 @@ static void test_kit_pack(void)
     size_t i;
     static const char *const bad[] = {"kit WWWW C-C- 0 101 0\n", "kit WWWW ---- 1 101 0\n", "kit WWWW C-C- 1 101 4\n", "kit WWWQ C-C- 1 101 0\n",
                                       "kit FWWF C-C- 1 101 0\n", "kit WWWW C-C- 1 101 0 door 1 2\n", "kit WWWW C-C- 1 101 0 junk\n",
-                                      "kit WWWW CxC- 1 101 0\n", "kit WWWW C-C 1 101 0\n", "kit WWWW C-C- 1 9999 0\n", "kit WWWW C-C-\n"};
+                                      "kit WWWW CxC- 1 101 0\n", "kit WWWW C-C 1 101 0\n", "kit WWWW C-C- 1 9999 0\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 0\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 256\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 23 x\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 2.5\n", "kit WWWW C-C-\n"};
     CHECK(t != NULL);
     if (!t)
         return;
     m = strlen(t);
     u = malloc(m + 512);
     memcpy(u, t, m);
-    strcpy(u + m, "kit WWWW C-C- 2 101 1\nkit WWWW -C-C 1 102 0 door 1.50 -0.25 0.10 1.5708\nkit FWFW -C-- 3 103 2\n");
-    CHECK(tilepack_parse(u, strlen(u), &p, err) == 0 && p.nkit == 3);
-    if (p.nkit == 3) {
+    strcpy(u + m, "kit WWWW C-C- 2 101 1\nkit WWWW -C-C 1 102 0 door 1.50 -0.25 0.10 1.5708\nkit FWFW -C-- 3 103 2\nkit WWWW C-C- 1 104 0 door 0 0 0.51 0 23\n");
+    CHECK(tilepack_parse(u, strlen(u), &p, err) == 0 && p.nkit == 4);
+    if (p.nkit == 4) {
+        CHECK(p.kit[1].app == 22 && p.kit[3].has_door && p.kit[3].app == 23 && p.kit[3].dz == 0.51); /* the look defaults to 22 */
         CHECK(p.kit[0].sig == 0 && p.kit[0].mask == 5 && p.kit[0].w == 2 && p.kit[0].tid == 101 && p.kit[0].orient == 1 && !p.kit[0].has_door);
         CHECK(p.kit[1].mask == 10 && p.kit[1].has_door && p.kit[1].dx == 1.5 && p.kit[1].dy == -0.25 && p.kit[1].dz == 0.1 && p.kit[1].bearing > 1.57 && p.kit[1].bearing < 1.58);
         CHECK(p.kit[2].sig == 10 && p.kit[2].mask == 2); /* FWFW: NW SW floor = index 8|2 */
@@ -1366,6 +1385,72 @@ static int unit_theme_cr(const roster_theme *t, const char *bp)
             if (!strcmp(t->e[role][i].resref, bp))
                 return t->e[role][i].cr;
     return -1;
+}
+
+static void test_loot_amount(void)
+{
+    size_t n, rn, ln, i, k;
+    char *tp_text = slurp("tests/data/tilepack_test.txt", &n), *rtext = slurp("tests/data/recipe_test.txt", &rn),
+         *ltext = slurp("tests/data/roster_loot_amount_test.txt", &ln);
+    tilepack tp;
+    recipe r;
+    roster rl;
+    gff are, git, ifo;
+    dungeon d[3];
+    char err[ERRLEN] = "";
+    spawn_cfg sc = {0};
+    uint64_t seed;
+    int more_items = 0, less_items = 0;
+
+    CHECK(tp_text && rtext && ltext);
+    if (!tp_text || !rtext || !ltext)
+        return;
+    CHECK(tilepack_parse(tp_text, n, &tp, err) == 0 && recipe_parse(rtext, rn, "tests/data", &r, err) == 0);
+    CHECK(roster_parse(ltext, ln, &rl, err) == 0);
+    CHECK(fx_are(&are) == 0 && fx_git(&git) == 0 && fx_ifo(&ifo) == 0);
+    for (seed = 1; seed <= 40; seed++) {
+        int amt;
+        sc.ro = &rl;
+        sc.party = 1 + (unsigned)(seed % 4);
+        sc.min_level = 1 + (unsigned)(seed % 4);
+        sc.max_level = sc.min_level + 1;
+        for (amt = 0; amt < 3; amt++) { /* 0 mid, 1 low, 2 high */
+            sc.loot_amount = amt;
+            CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seed, &sc, &d[amt], err) == 0);
+        }
+        for (i = 0; i < d[0].n; i++) {
+            CHECK(d[0].area[i].nsp == d[1].area[i].nsp && d[0].area[i].nsp == d[2].area[i].nsp);
+            for (k = 0; k < d[0].area[i].nsp; k++) {
+                const spawn_pt *m = &d[0].area[i].sp[k], *lo = &d[1].area[i].sp[k], *hi = &d[2].area[i].sp[k];
+                int im = (m->loot[0][0] != 0) + (m->loot[1][0] != 0), il = (lo->loot[0][0] != 0) + (lo->loot[1][0] != 0),
+                    ih = (hi->loot[0][0] != 0) + (hi->loot[1][0] != 0);
+                CHECK(m->kind == lo->kind && m->kind == hi->kind && !strcmp(m->bp, lo->bp) && !strcmp(m->bp, hi->bp) && m->cx == hi->cx && m->cy == lo->cy);
+                if (m->kind != 'C' && m->kind != 'B')
+                    continue;
+                if (m->kind == 'B') /* a boss always carries two items; only gold scales */
+                    CHECK(il == im && ih == im);
+                else
+                    CHECK(il <= im && im <= ih); /* same draws, scaled chances: the sets only grow with the amount */
+                more_items += ih > im;
+                less_items += il < im;
+                if (m->gold) { /* low halves, high doubles (floor of 1) */
+                    CHECK(lo->gold >= 1 && lo->gold <= m->gold && lo->gold == (m->gold / 2 < 1 ? 1 : m->gold / 2));
+                    CHECK(hi->gold >= m->gold && hi->gold <= 2 * m->gold);
+                }
+            }
+        }
+        dungeon_free(&d[0]);
+        dungeon_free(&d[1]);
+        dungeon_free(&d[2]);
+    }
+    CHECK(more_items > 0 && less_items > 0); /* the fixture has a 50% band, so the scale must change something */
+    gff_free(&are);
+    gff_free(&git);
+    gff_free(&ifo);
+    tilepack_free(&tp);
+    free(tp_text);
+    free(rtext);
+    free(ltext);
 }
 
 static void test_hench(void)
@@ -2016,6 +2101,7 @@ int main(void)
     test_roster_loot();
     test_loot_plan();
     test_hench();
+    test_loot_amount();
     test_spawn();
     test_deco();
     test_tileset();

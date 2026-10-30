@@ -10,3 +10,4 @@ record whose raw corners/edges/door slot are the inverse rotation of what the pa
 door that is locked, plot and open, to prove the generator resets them). They are not committed; `dungeon_e2e.sh` builds them each run.
 `roster_loot_test.txt` is `roster_deco_test.txt` plus `gold` and `loot` lines (certain drops in two CR bands, a 50% band above CR 3) on the first theme, for the loot tests.
 `roster_hench_test.txt` is `roster_loot_test.txt` plus three `henchman` families (`t_hen_a` .. `t_hen_c`), for the henchman tests.
+`roster_loot_amount_test.txt` is `roster_loot_test.txt` with 60% and 40% drops in the two lower bands (instead of certain ones), so the `loot_amount` scale has something to change.

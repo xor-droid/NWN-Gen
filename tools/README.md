@@ -68,11 +68,13 @@ Corridors in the plain and rich packs are wide strips of full-floor cells, which
 can: all-Wall tiles whose edges carry the `Corridor` crosser (`g01` elbows, `g02` straights, `g07_01` a straight with a plain door) and
 the room-wall connector `c13_01`. `nwnpack kit-report` prints how stock areas use these tiles and dumps every stock `Door List` entry on a
 door tile (type, position relative to the tile, bearing), which is where the generator's door placement comes from.
-`nwnpack tilepack-kit OUT` writes the rich pack plus `kit SIG EDGES weight tile orient [door X Y Z BEARING]` records, one per
+`nwnpack tilepack-kit OUT` writes the rich pack plus `kit SIG EDGES weight tile orient [door X Y Z BEARING [LOOK]]` records, one per
 orientation of each admitted tile. A tile is admitted only if the game's own walkmesh joins the midpoint of each Corridor edge, each
 all-Floor edge and the door slot into one walkable region. `nwnpack templates` now also writes `tpl_door.git` (stock `nw_door_ttr_08`,
 verified closed, unlocked and not plot in the source module). Use them through the recipe keys `corridors kit`, `doors plain` and
 `template_door` (see USAGE.md).
+
+`tilepack-kit` also lists the second corridor door tile `tdc01_g07_02` (door type 23). Stock areas never place it, so unlike every other kit tile its orientations are not proven by stock use and its lighting is borrowed from g07_01 (the tileset gives both the same flags); the record ends in `23`. Only `doors mixed` uses it.
 
 `dgcheck --root` validates kit modules independently: edge adjacency from the `.set`, one walkable region over cells joined by shared
 open sides (full-floor sides and Corridor edges), every kit tile's walkmesh, and every door (one per door-tile slot read from the `.set`,

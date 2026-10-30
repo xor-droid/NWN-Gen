@@ -70,7 +70,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     size_t nl2 = 0;
     char bossloot[2][17] = {"", ""};
     char bossbp[17] = "";
-    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen};
+    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount};
 
     put(&b, "\n%s (seed %llu)\n", r->module_name, (unsigned long long)cfg->seed);
     if (cfg->min_level == cfg->max_level)
@@ -85,6 +85,18 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     }
     put(&b, "  Levels:     %zu areas, %zu rooms, %zu %s, %s corridors\n", d->n, nrooms, ndoors, plural((long)ndoors, "door", "doors"),
         r->kit_corridors ? "stock kit" : "wide");
+    if (r->doors == 2 && ndoors) { /* doors mixed: how many of each look (doortypes.2da row) */
+        size_t m;
+        int ln[256] = {0};
+        put(&b, "  Door looks: ");
+        for (a = 0; a < d->n; a++)
+            for (m = 0; m < d->area[a].ndoor; m++)
+                ln[d->area[a].door[m].app & 255]++;
+        for (m = 0, k = 0; m < 256; m++)
+            if (ln[m])
+                put(&b, "%stype %zu x %d", k++ ? ", " : "", m, ln[m]);
+        put(&b, "\n");
+    }
     if (th)
         put(&b, "  Theme:      %s%s\n", th->name, r->boss_only ? " (boss_only test mode: no regular creatures, boss has 1 hit point)" : r->loot_test ? " (loot_test mode: five creatures and the boss, all on level 1 with 1 hit point and unarmed)" : "");
     else
@@ -194,7 +206,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
         put(&b, "  Decor:      %ld props, %ld light %s\n", ndecor, nlight, plural(nlight, "source", "sources"));
         if (items_total || gold_total) {
             size_t z;
-            put(&b, "\n  Carried loot (level-scaled by creature CR, fixed by the seed): %ld %s, %ld gold\n", items_total, plural(items_total, "item", "items"), gold_total);
+            put(&b, "\n  Carried loot (level-scaled by creature CR, fixed by the seed%s): %ld %s, %ld gold\n", r->loot_amount == 1 ? ", loot amount low" : r->loot_amount == 2 ? ", loot amount high" : "", items_total, plural(items_total, "item", "items"), gold_total);
             for (z = 0; z < nl2; z++)
                 put(&b, "    %-22s x %d\n", loot[z].bp, loot[z].n);
             if (bossarea >= 0)

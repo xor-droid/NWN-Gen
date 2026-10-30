@@ -222,6 +222,30 @@ check "kit: erf parses" "$BUILD/erfcheck" nwn1 "$T/k/k1.mod"
 genk --seed 12345 --output "$T/k/again.mod" --force >/dev/null && cmp -s "$T/k/again.mod" "$T/k/k12345.mod" && ok || bad "kit build is not reproducible"
 checkfail "kit differs from the plain build of the same seed" cmp -s "$T/k/k12345.mod" "$T/o1/a.mod"
 gen --seed 12345 --output "$T/k/plain.mod" >/dev/null && cmp -s "$T/k/plain.mod" "$T/o1/a.mod" && ok || bad "plain build changed after the kit work"
+# --- doors mixed: every door look the pack has (the fixture has type 22 and type 23 door tiles) -------
+sed 's/^doors plain/doors mixed/' "$FX/recipe_kit.txt" > "$FX/recipe_kit_mixed.txt"
+looks22=0; looks23=0
+for seed in 1 2 3 4 5 6 7 8; do
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_mixed.txt" --seed $seed --output "$T/k/x$seed.mod" --manifest "$T/k/x$seed.txt" >/dev/null || { bad "doors mixed generate seed $seed"; continue; }
+  dgk "$T/k/x$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck doors mixed seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+  grep -q '^doors=mixed$' "$T/k/x$seed.txt" && grep -q '^door_looks=' "$T/k/x$seed.txt" && ok || bad "doors mixed manifest seed $seed"
+  looks22=$((looks22 + $(sed -n 's/^door_looks=//p' "$T/k/x$seed.txt" | tr ',' '\n' | sed -n 's/^22://p' | awk '{s += $1} END {print s + 0}')))
+  looks23=$((looks23 + $(sed -n 's/^door_looks=//p' "$T/k/x$seed.txt" | tr ',' '\n' | sed -n 's/^23://p' | awk '{s += $1} END {print s + 0}')))
+done
+[ "$looks22" -gt 0 ] && [ "$looks23" -gt 0 ] && ok || bad "doors mixed should use both looks (22: $looks22, 23: $looks23)"
+# doors plain ignores the second look: the same bytes whether or not the pack lists it
+grep -v ' 23$' "$FX/tilepack_kit.txt" > "$FX/tilepack_kit_no23.txt"
+sed 's/^tilepack tilepack_kit.txt/tilepack tilepack_kit_no23.txt/' "$FX/recipe_kit.txt" > "$FX/recipe_kit_no23.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_no23.txt" --seed 12345 --output "$T/k/no23.mod" >/dev/null && cmp -s "$T/k/no23.mod" "$T/k/k12345.mod" && ok || bad "doors plain changed because the pack lists another look"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit.txt" --seed 12345 --output "$T/k/pl.mod" --manifest "$T/k/pl.txt" --force >/dev/null && ! grep -q '^door_looks' "$T/k/pl.txt" && ok || bad "doors plain manifest lists looks"
+# the validator reads the door type from the tileset: a lie about the look must show
+KSET=tileset_kit_look.set; sed 's/^Type=23/Type=22/' "$FX/tileset_kit.set" > "$FX/$KSET"
+nbadlook=0
+for seed in 1 2 3 4 5 6 7 8; do dgk "$T/k/x$seed.mod" >/dev/null 2>&1 || nbadlook=$((nbadlook + 1)); done
+[ "$nbadlook" -gt 0 ] && ok || bad "dgcheck accepted every type-23 door with the tileset saying 22"
+{ cat "$FX/recipe_kit.txt"; } | sed 's/^doors plain/doors sideways/' > "$FX/r_badlook.txt"
+badruns "doors sideways" --recipe "$FX/r_badlook.txt"
+
 # kit corridors without doors
 sed '/^doors plain/d; /^template_door/d' "$FX/recipe_kit.txt" > "$FX/recipe_kit_nodoor.txt"
 "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_nodoor.txt" --seed 3 --output "$T/k/nd.mod" --manifest "$T/k/nd.txt" >/dev/null && ok || bad "kit without doors generation"
@@ -324,6 +348,21 @@ for seed in 1 2 3 12345; do
 done
 { cat "$FX/recipe_test.txt"; echo "spawn_mode loot_test"; } > "$FX/r_ltnoroster.txt"
 badruns "loot_test without roster" --recipe "$FX/r_ltnoroster.txt"
+
+# --- loot_amount low|mid|high ------------------------------------------------------------------------
+for amt in low mid high; do
+  { cat "$FX/recipe_loot.txt"; echo "loot_amount $amt"; } > "$FX/recipe_la_$amt.txt"
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_la_$amt.txt" --seed 12345 --output "$T/l/la_$amt.mod" --manifest "$T/l/la_$amt.txt" >"$T/l/la_$amt.out" || { bad "loot_amount $amt generate"; continue; }
+  grep -q "^loot_amount=$amt\$" "$T/l/la_$amt.txt" && ok || bad "loot_amount $amt manifest"
+  "$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_loot_test.txt" "$T/l/la_$amt.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck loot_amount $amt: $(grep BAD "$T/dg.txt" | head -3)"
+done
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_loot.txt" --seed 12345 --output "$T/l/la_default.mod" --force >/dev/null && cmp -s "$T/l/la_default.mod" "$T/l/la_mid.mod" && ok || bad "loot_amount mid differs from leaving the key out"
+checkfail "loot_amount high differs from low" cmp -s "$T/l/la_high.mod" "$T/l/la_low.mod"
+grep -q 'loot amount high' "$T/l/la_high.out" && ok || bad "summary does not mention loot amount high"
+{ cat "$FX/recipe_test.txt"; echo "loot_amount high"; } > "$FX/r_laoroster.txt"
+badruns "loot_amount without roster" --recipe "$FX/r_laoroster.txt"
+{ cat "$FX/recipe_loot.txt"; echo "loot_amount lots"; } > "$FX/r_labad.txt"
+badruns "loot_amount lots" --recipe "$FX/r_labad.txt"
 
 # --- henchmen: the first player gets stock henchmen from the roster's families -----------------------
 cp "$HERE/data/roster_hench_test.txt" "$FX/"

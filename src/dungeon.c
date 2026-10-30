@@ -98,18 +98,22 @@ int tilepack_parse(const char *text, size_t len, tilepack *p, char *err)
         } else if (!strncmp(buf, "kit ", 4)) {
             char sg[8], mk[8];
             unsigned w;
-            int tid, ori, used = 0, idx, mask = 0, has_door = 0;
+            int tid, ori, used = 0, idx, mask = 0, has_door = 0, app = 22;
             double dx = 0, dy = 0, dz = 0, br = 0;
             pack_kit *pk;
             if (sscanf(buf + 4, "%7s %7s %u %d %d%n", sg, mk, &w, &tid, &ori, &used) != 5) {
-                set_err(err, "tilepack line %d: expected 'kit SIG EDGES weight tile orientation [door X Y Z BEARING]'", line);
+                set_err(err, "tilepack line %d: expected 'kit SIG EDGES weight tile orientation [door X Y Z BEARING [LOOK]]'", line);
                 goto bad;
             }
             q = buf + 4 + used;
             if (*q) {
-                int used2 = 0;
-                if (sscanf(q, " door %lf %lf %lf %lf%n", &dx, &dy, &dz, &br, &used2) != 4 || q[used2]) {
+                int used2 = 0, used3 = 0;
+                if (sscanf(q, " door %lf %lf %lf %lf%n", &dx, &dy, &dz, &br, &used2) != 4) {
                     set_err(err, "tilepack line %d: bad kit door suffix", line);
+                    goto bad;
+                }
+                if (q[used2] && (sscanf(q + used2, " %d%n", &app, &used3) != 1 || q[used2 + used3] || app < 1 || app > 255)) {
+                    set_err(err, "tilepack line %d: bad kit door suffix (look must be 1-255)", line);
                     goto bad;
                 }
                 has_door = 1;
@@ -126,7 +130,7 @@ int tilepack_parse(const char *text, size_t len, tilepack *p, char *err)
             p->kit = xrealloc(p->kit, (p->nkit + 1) * sizeof *p->kit);
             pk = &p->kit[p->nkit++];
             pk->sig = idx; pk->mask = mask; pk->w = w; pk->tid = tid; pk->orient = ori;
-            pk->has_door = has_door; pk->dx = dx; pk->dy = dy; pk->dz = dz; pk->bearing = br;
+            pk->has_door = has_door; pk->dx = dx; pk->dy = dy; pk->dz = dz; pk->bearing = br; pk->app = app;
         } else if (!strncmp(buf, "light ", 6)) {
             pack_light *pl;
             long tid, vv;
@@ -866,6 +870,7 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
             if (gff_set_string(dr, "Tag", GFF_STRING, tag, err) || gff_set_float(dr, "X", (float)a->door[m].x, err) ||
                 gff_set_float(dr, "Y", (float)a->door[m].y, err) || gff_set_float(dr, "Z", (float)a->door[m].z, err) ||
                 gff_set_float(dr, "Bearing", (float)a->door[m].bearing, err) || gff_set_int(dr, "Locked", GFF_BYTE, 0, err) ||
+                gff_set_int(dr, "Appearance", gff_find(dr, "Appearance") ? gff_find(dr, "Appearance")->type : GFF_DWORD, a->door[m].app, err) ||
                 gff_set_int(dr, "Plot", GFF_BYTE, 0, err) || gff_set_int(dr, "AnimationState", GFF_BYTE, 0, err)) {
                 gff_struct_free(dr);
                 return -1;
@@ -975,7 +980,7 @@ void dungeon_free(dungeon *d)
 
 /* One closed door per kit corridor: a straight corridor cell that is not beside a room, swapped for the door variant of its tile.
  * Own RNG domain, so switching doors on or off leaves every other tile exactly as it was. */
-static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, dungeon_area *a, char *err)
+static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, int mixed, dungeon_area *a, char *err)
 {
     const layout *l = &a->lay;
     uint8_t h[32];
@@ -988,7 +993,7 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, du
         v = v << 8 | h[k];
     sm64_seed(&drng, v);
     for (i = 0; i < l->nlink; i++) {
-        int cand[LINK_MAX], nc = 0, pick, cx, cy, mask;
+        int cand[LINK_MAX], nc = 0, pick, cx, cy, mask, look;
         size_t q, total = 0, j;
         uint64_t rr;
         for (k = 1; k + 1 < l->link_n[i]; k++) {
@@ -1002,8 +1007,28 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, du
         cx = l->link[i][pick][0];
         cy = l->link[i][pick][1];
         mask = l->kedge[cy][cx];
+        look = 22; /* doors plain: the stock plain look only, whatever else the pack holds */
+        if (mixed) { /* doors mixed: every look the pack has for this corridor is equally likely, then the tile as usual */
+            int looks[8], nl = 0, lk;
+            for (q = 0; q < tp->nkit; q++) {
+                int f = 0;
+                if (!tp->kit[q].has_door || tp->kit[q].sig != 0 || tp->kit[q].mask != mask)
+                    continue;
+                for (lk = 0; lk < nl; lk++)
+                    f |= looks[lk] == tp->kit[q].app;
+                if (!f && nl < 8)
+                    looks[nl++] = tp->kit[q].app;
+            }
+            for (lk = 1; lk < nl; lk++) { /* ascending, so the draw does not depend on record order */
+                int v2 = looks[lk], m2 = lk - 1;
+                while (m2 >= 0 && looks[m2] > v2) { looks[m2 + 1] = looks[m2]; m2--; }
+                looks[m2 + 1] = v2;
+            }
+            if (nl)
+                look = looks[nl > 1 ? (int)sm64_bounded(&drng, (uint64_t)nl) : 0];
+        }
         for (q = 0; q < tp->nkit; q++)
-            if (tp->kit[q].has_door && tp->kit[q].sig == 0 && tp->kit[q].mask == mask)
+            if (tp->kit[q].has_door && tp->kit[q].sig == 0 && tp->kit[q].mask == mask && tp->kit[q].app == look)
                 total += tp->kit[q].w;
         if (!total) {
             set_err(err, "the tilepack has no door tile for a corridor with edges 0x%x (build it with nwnpack tilepack-kit)", mask);
@@ -1011,7 +1036,7 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, du
         }
         rr = sm64_bounded(&drng, total);
         for (q = 0; q < tp->nkit; q++) {
-            if (!tp->kit[q].has_door || tp->kit[q].sig != 0 || tp->kit[q].mask != mask)
+            if (!tp->kit[q].has_door || tp->kit[q].sig != 0 || tp->kit[q].mask != mask || tp->kit[q].app != look)
                 continue;
             if (rr < tp->kit[q].w)
                 break;
@@ -1027,6 +1052,7 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, du
         a->door[j].y = cc(cy) + tp->kit[q].dy;
         a->door[j].z = tp->kit[q].dz;
         a->door[j].bearing = tp->kit[q].bearing;
+        a->door[j].app = tp->kit[q].app;
     }
     return 0;
 }
@@ -1096,7 +1122,7 @@ int dungeon_build_ex(const recipe *r, const tilepack *tp, const gff *tpl_are, co
                 t[y * (int)ra->w + x].tid = pc->t[k].tid;
                 t[y * (int)ra->w + x].orient = pc->t[k].orient;
             }
-        if (r->doors && place_doors(tp, seed, ra->resref, a, msg) != 0) {
+        if (r->doors && place_doors(tp, seed, ra->resref, r->doors == 2, a, msg) != 0) {
             set_err(err, "area '%s': %s", ra->resref, msg);
             goto fail;
         }

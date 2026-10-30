@@ -56,7 +56,7 @@ typedef struct {
 } roster;
 
 /* Inputs the spawn planner needs besides the roster. */
-typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen; } spawn_cfg;
+typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen, loot_amount; } spawn_cfg; /* loot_amount: 0 mid, 1 low, 2 high */
 
 /* A spawn marker: kind is one of C (creature) B (boss) T (boss with 1 hit point, boss_only runs) V (vault)
  * K (key item) R (relic item) D (decor prop) L (light) X (lootable container). */

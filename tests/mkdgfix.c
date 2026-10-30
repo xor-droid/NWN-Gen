@@ -84,10 +84,13 @@ static char *set_text(int bad, int kit)
  * Every kit record is its own tile whose raw corners/edges are the inverse rotation of the pattern it presents at `orient`, so the
  * generator's pack and dgcheck's reading of the .set must agree through the same rotation convention as for the cell tiles. */
 typedef struct { const char *sig, *edges; int tid, orient, door; } kitrec;
+/* tiles 215 and 216 carry the second door look (type 23), the rest the plain one (22) */
+static int k_app(const kitrec *k) { return k->tid == 215 || k->tid == 216 ? 23 : 22; }
 static const kitrec KITREC[] = {
     {"WWWW", "C-C-", 200, 0, 0}, {"WWWW", "-C-C", 201, 1, 0}, {"WWWW", "C-C-", 202, 2, 0}, {"WWWW", "-C-C", 203, 3, 0},
     {"WWWW", "CC--", 204, 0, 0}, {"WWWW", "-CC-", 205, 1, 0}, {"WWWW", "--CC", 206, 2, 0}, {"WWWW", "C--C", 207, 3, 0},
     {"WWWW", "C-C-", 208, 1, 1}, {"WWWW", "-C-C", 209, 0, 1}, {"WWWW", "-C-C", 210, 2, 1},
+    {"WWWW", "C-C-", 215, 3, 1}, {"WWWW", "-C-C", 216, 2, 1}, /* the second door look, used by doors mixed only */
     {"FFWW", "--C-", 211, 3, 0}, {"WWFF", "C---", 212, 1, 0}, {"FWFW", "-C--", 213, 0, 0}, {"WFWF", "---C", 214, 2, 0},
 };
 #define NKITREC ((int)(sizeof KITREC / sizeof KITREC[0]))
@@ -127,7 +130,7 @@ static size_t kit_set_tiles(char *t, size_t cap, size_t len)
                 len += (size_t)snprintf(t + len, cap - len, "%s=Corridor\n", EKEY[p]);
         len += (size_t)snprintf(t + len, cap - len, "Doors=%d\n", k->door);
         if (k->door)
-            len += (size_t)snprintf(t + len, cap - len, "[TILE%dDOOR0]\nType=22\nX=1.5\nY=0.0\nZ=0.0\nOrientation=0.0\n", k->tid);
+            len += (size_t)snprintf(t + len, cap - len, "[TILE%dDOOR0]\nType=%d\nX=1.5\nY=0.0\nZ=0.0\nOrientation=0.0\n", k->tid, k_app(k));
     }
     return len;
 }
@@ -147,6 +150,8 @@ static char *kit_pack_text(void)
             double x, y, b;
             k_door(k->orient, &x, &y, &b);
             len += (size_t)snprintf(t + len, cap - len, " door %.2f %.2f %.2f %.4f", x, y, 0.0, b);
+            if (k_app(k) != 22)
+                len += (size_t)snprintf(t + len, cap - len, " %d", k_app(k));
         }
         len += (size_t)snprintf(t + len, cap - len, "\n");
     }
