@@ -1,0 +1,18 @@
+nwndgen-roster 1
+# Synthetic roster for the tests: the blueprint names do not exist in any game.
+vault t_vault
+key t_key
+relic t_relic
+
+theme alpha Alpha Raiders
+minion t_a_min1 0.25
+minion t_a_min2 0.5
+standard t_a_std 1
+elite t_a_elite 2
+boss t_a_boss 2
+boss t_a_boss3 3
+
+theme beta The Beta Horde
+minion t_b_min 0.33
+standard t_b_std 1.5
+boss t_b_boss 1.5

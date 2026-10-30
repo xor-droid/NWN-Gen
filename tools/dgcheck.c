@@ -1,0 +1,739 @@
+/* dgcheck - independent validator for modules built by `nwndgen --recipe`.
+ *
+ *   dgcheck (--root INSTALL | --set TILESET.set) [--tileset NAME] MODULE.mod
+ *
+ * Re-derives the tile rules from the tileset's own .set file (corner/edge/height matching under
+ * counter-clockwise rotation, Tile_List rows from the south) and checks the built module against them:
+ *   - every listed area has ARE+GIT+GIC; Tile_List length = Width*Height; the area's tileset is NAME
+ *   - zero adjacency violations; no door tiles
+ *   - the cells with all four corners Floor form ONE 4-connected region
+ *   - every waypoint/trigger/entry position lies on such a cell, inside the area
+ *   - no waypoint sits inside a trigger polygon
+ *   - every transition trigger links (LinkedToFlags 2) to a waypoint tag found in ANOTHER area
+ *   - the GIC mirrors the GIT list lengths and struct ids
+ *   - module.ifo: entry area is listed, entry position is on floor
+ * With a roster (and an install) it also checks the creature/objective markers (see check_spawn).
+ * It shares no code with src/dungeon.c (only the generic GFF/ERF readers and the tileset model).
+ * Exit 0 = all checks passed, 1 = a problem was found, 2 = usage. */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "erf.h"
+#include "game.h"
+#include "gff.h"
+#include "key.h"
+#include "roster.h"
+#include "tileset.h"
+#include "util.h"
+
+static double absd(double v) { return v < 0 ? -v : v; }
+
+static int problems;
+static char err[ERRLEN];
+
+#define BAD(...) do { problems++; printf("BAD  " __VA_ARGS__); printf("\n"); } while (0)
+
+static const char *const GIT_LISTS[9] = {"Creature List", "Door List", "Encounter List", "List", "Placeable List",
+                                         "SoundList", "StoreList", "TriggerList", "WaypointList"};
+
+typedef struct {
+    char name[20], on_enter[40];
+    int w, h;
+    unsigned char *floor;            /* w*h: 1 where the tile has Floor on all four corners */
+    int *tid;                        /* w*h tile ids */
+    int *ori;                        /* w*h tile orientations */
+    unsigned char *open;             /* w*h: sides (T=1 R=2 B=4 L=8) a walker can cross: both corners Floor, or a Corridor edge; 16 = full-floor or corridor tile */
+    gff git;
+} area_info;
+
+static int load_gff(const erf *m, const char *name, uint16_t type, gff *g)
+{
+    const erf_res *r = erf_find(m, name, type);
+    if (!r) { BAD("%s.%s is missing from the module", name, res_ext(type)); return -1; }
+    if (gff_parse(r->data, r->size, g, err) != 0) { BAD("%s.%s does not parse: %s", name, res_ext(type), err); return -1; }
+    return 0;
+}
+
+static int on_floor(const area_info *a, double x, double y)
+{
+    int cx = (int)(x / 10.0), cy = (int)(y / 10.0);
+    if (x < 0 || y < 0 || cx >= a->w || cy >= a->h) return 0;
+    return a->floor[cy * a->w + cx];
+}
+
+static int in_poly(const gff_struct *trig, double x, double y)
+{
+    const gff_field *g = gff_find(trig, "Geometry");
+    double cx = gff_get_float(trig, "XPosition", 0), cy = gff_get_float(trig, "YPosition", 0);
+    size_t i, n = g && g->type == GFF_LIST ? g->nlist : 0;
+    int inside = 0;
+    for (i = 0; i < n; i++) {
+        const gff_struct *p1 = g->list[i], *p2 = g->list[(i + 1) % n];
+        double x1 = cx + gff_get_float(p1, "PointX", 0), y1 = cy + gff_get_float(p1, "PointY", 0);
+        double x2 = cx + gff_get_float(p2, "PointX", 0), y2 = cy + gff_get_float(p2, "PointY", 0);
+        if ((y1 > y) != (y2 > y) && x < (x2 - x1) * (y - y1) / (y2 - y1) + x1) inside = !inside;
+    }
+    return inside;
+}
+
+static int floor_components(const area_info *a, int *nfloor)
+{
+    int n = a->w * a->h, i, comps = 0, sp;
+    unsigned char *seen = calloc((size_t)n, 1);
+    int *stack = malloc((size_t)n * sizeof *stack);
+    *nfloor = 0;
+    for (i = 0; i < n; i++) *nfloor += a->floor[i];
+    for (i = 0; i < n; i++) {
+        if (!a->floor[i] || seen[i]) continue;
+        comps++;
+        sp = 0;
+        stack[sp++] = i;
+        seen[i] = 1;
+        while (sp) {
+            int c = stack[--sp], x = c % a->w, y = c / a->w, d;
+            static const int dx[4] = {1, -1, 0, 0}, dy[4] = {0, 0, 1, -1};
+            for (d = 0; d < 4; d++) {
+                int nx = x + dx[d], ny = y + dy[d];
+                if (nx < 0 || ny < 0 || nx >= a->w || ny >= a->h || !a->floor[ny * a->w + nx] || seen[ny * a->w + nx]) continue;
+                seen[ny * a->w + nx] = 1;
+                stack[sp++] = ny * a->w + nx;
+            }
+        }
+    }
+    free(seen);
+    free(stack);
+    return comps;
+}
+
+/* Cells with a side a walker can cross (both corners Floor, or a Corridor edge) joined across matching open sides: one region expected.
+ * hubs_only counts just regions holding a full-floor or corridor tile (bit 16): a lone wall-ring tile is not a region worth counting. */
+static int walk_components(const area_info *a, int hubs_only)
+{
+    int n = a->w * a->h, i, comps = 0, sp, hub;
+    unsigned char *seen = calloc((size_t)n, 1);
+    int *stack = malloc((size_t)n * sizeof *stack);
+    static const int DX[4] = {0, 1, 0, -1}, DY[4] = {1, 0, -1, 0}; /* T R B L */
+    for (i = 0; i < n; i++) {
+        if (!(a->open[i] & 15) || seen[i]) continue;
+        hub = (a->open[i] & 16) != 0;
+        sp = 0;
+        stack[sp++] = i;
+        seen[i] = 1;
+        while (sp) {
+            int c = stack[--sp], x = c % a->w, y = c / a->w, d;
+            for (d = 0; d < 4; d++) {
+                int nx = x + DX[d], ny = y + DY[d];
+                if (!(a->open[c] >> d & 1) || nx < 0 || ny < 0 || nx >= a->w || ny >= a->h) continue;
+                if (!(a->open[ny * a->w + nx] >> ((d + 2) & 3) & 1) || seen[ny * a->w + nx]) continue;
+                seen[ny * a->w + nx] = 1;
+                hub |= (a->open[ny * a->w + nx] & 16) != 0;
+                stack[sp++] = ny * a->w + nx;
+            }
+        }
+        comps += !hubs_only || hub;
+    }
+    free(seen);
+    free(stack);
+    return comps;
+}
+
+static int angle_close(double a, double b)
+{
+    double d = a - b;
+    while (d > 3.14159265358979) d -= 6.28318530717959;
+    while (d < -3.14159265358979) d += 6.28318530717959;
+    return d > -0.01 && d < 0.01;
+}
+
+/* Every tile door slot in the tileset (read from the .set, not from the generator) has exactly one door at its position and facing,
+ * closed, unlocked and not plot; no door stands anywhere else. Returns the number of doors in the GIT. */
+static size_t check_doors(const area_info *a, const int *tid, const int *ori, const tileset *ts)
+{
+    const gff_field *dl = a->git.root ? gff_find(a->git.root, "Door List") : NULL;
+    size_t nd = dl && dl->type == GFF_LIST ? dl->nlist : 0, q;
+    unsigned char *used = calloc(nd ? nd : 1, 1);
+    int x, y;
+
+    for (y = 0; y < a->h; y++)
+        for (x = 0; x < a->w; x++) {
+            const set_tile *t = &ts->t[tid[y * a->w + x]];
+            int o = ori[y * a->w + x], s;
+            if (t->doors <= 0) continue;
+            if (t->ndslot != t->doors) { BAD("%s: tile %s declares %d doors but the set lists %d slots", a->name, t->model, t->doors, t->ndslot); continue; }
+            for (s = 0; s < t->doors && s < 4; s++) {
+                double lx = t->dslot[s].x, ly = t->dslot[s].y, ex, ey, eb;
+                int r, found = 0;
+                for (r = 0; r < o; r++) { double nx = -ly; ly = lx; lx = nx; }
+                ex = x * 10.0 + 5.0 + lx;
+                ey = y * 10.0 + 5.0 + ly;
+                eb = (t->dslot[s].orient + 90.0 * o) * 3.14159265358979 / 180.0;
+                for (q = 0; q < nd && !found; q++) {
+                    const gff_struct *d = dl->list[q];
+                    double dx = gff_get_float(d, "X", -1000) - ex, dy = gff_get_float(d, "Y", -1000) - ey;
+                    if (used[q] || dx < -0.2 || dx > 0.2 || dy < -0.2 || dy > 0.2) continue;
+                    used[q] = found = 1;
+                    if (!angle_close(gff_get_float(d, "Bearing", 99), eb)) BAD("%s: door %s faces the wrong way for its tile", a->name, gff_get_string(d, "Tag"));
+                    if (gff_get_int(d, "Appearance", -1) != t->dslot[s].type) BAD("%s: door %s has appearance %lld, the slot wants %d", a->name, gff_get_string(d, "Tag"), (long long)gff_get_int(d, "Appearance", -1), t->dslot[s].type);
+                    if (gff_get_int(d, "Locked", 1) || gff_get_int(d, "Plot", 1) || gff_get_int(d, "AnimationState", 1) || gff_get_int(d, "TrapFlag", 1))
+                        BAD("%s: door %s is locked, plot, trapped or not closed", a->name, gff_get_string(d, "Tag"));
+                    if (gff_get_float(d, "Z", 99) - t->dslot[s].z > 0.2 || t->dslot[s].z - gff_get_float(d, "Z", 99) > 0.2) BAD("%s: door %s is at the wrong height", a->name, gff_get_string(d, "Tag"));
+                }
+                if (!found) BAD("%s: door tile %s at (%d,%d) has no door at its slot (%.1f, %.1f)", a->name, t->model, x, y, ex, ey);
+            }
+        }
+    for (q = 0; q < nd; q++)
+        if (!used[q]) BAD("%s: door %s is not on a door tile slot", a->name, gff_get_string(dl->list[q], "Tag"));
+    free(used);
+    return nd;
+}
+
+/* ---- creatures and objective (only when the module was built with a roster) ---- */
+
+typedef struct { char kind, bp[17]; int area, cx, cy; double ox, oy; /* metres from the cell centre */ } marker;
+
+static int cheb(int ax, int ay, int bx, int by)
+{
+    int dx = abs(ax - bx), dy = abs(ay - by);
+    return dx > dy ? dx : dy;
+}
+
+static int resref_ok(const char *s)
+{
+    size_t i, n = strlen(s);
+    if (!n || n > 16) return 0;
+    for (i = 0; i < n; i++)
+        if (!((s[i] >= 'a' && s[i] <= 'z') || (s[i] >= '0' && s[i] <= '9') || s[i] == '_')) return 0;
+    return 1;
+}
+
+static int in_roster_role(const roster_theme *t, int role, const char *bp, int *cr)
+{
+    size_t i;
+    for (i = 0; i < t->n[role]; i++)
+        if (!strcmp(t->e[role][i].resref, bp)) { *cr = t->e[role][i].cr; return 1; }
+    return 0;
+}
+
+/* Blueprint must exist; creatures must be hostile (faction 1) and, with a roster, match its CR. */
+static void check_blueprint(resman *rm, const char *where, char kind, const char *bp, int roster_cr)
+{
+    uint16_t type = strchr("VDLX", kind) ? 2044 : (kind == 'C' || kind == 'B') ? 2027 : 2025;
+    uint8_t *b;
+    size_t bl;
+    gff g;
+    char e2[ERRLEN];
+    if (resman_get(rm, bp, type, &b, &bl, e2) != 0) { BAD("%s: blueprint %s does not resolve: %s", where, bp, e2); return; }
+    if (gff_parse(b, bl, &g, e2) != 0) { BAD("%s: blueprint %s does not parse: %s", where, bp, e2); free(b); return; }
+    if (type == 2027) {
+        double cr = gff_get_float(g.root, "ChallengeRating", -1);
+        if (gff_get_int(g.root, "FactionID", -1) != 1) BAD("%s: creature %s is not in the hostile faction (FactionID %lld)", where, bp, (long long)gff_get_int(g.root, "FactionID", -1));
+        if (roster_cr >= 0 && (int)(cr * 100.0 + 0.5) != roster_cr) BAD("%s: creature %s has CR %.3f but the roster says %d.%02d", where, bp, cr, roster_cr / 100, roster_cr % 100);
+    } else if (type == 2044) {
+        int inv = (int)gff_get_int(g.root, "HasInventory", 0);
+        if ((kind == 'V' || kind == 'X') && inv != 1) BAD("%s: %s %s has no inventory", where, kind == 'V' ? "vault" : "container", bp);
+        if ((kind == 'D' || kind == 'L') && (inv || gff_get_int(g.root, "Useable", 0))) BAD("%s: scenery %s is usable or holds items", where, bp);
+        if (kind == 'X' && (gff_get_int(g.root, "Locked", 0) || gff_get_int(g.root, "Plot", 0) || gff_get_int(g.root, "TrapFlag", 0))) BAD("%s: container %s is locked, plot or trapped", where, bp);
+    }
+    gff_free(&g);
+    free(b);
+}
+
+/* With an install: every tile with four Floor corners must have a walkmesh that is walkable at its centre, at the four
+ * scenery slots and just inside each edge, all joined (so no placed tile can cut off a room or sit a creature on a
+ * pillar). Checked per tile model, independent of how the generator chose the tile. */
+static void check_floor_tiles(area_info *ai, size_t na, const tileset *ts, resman *rm)
+{
+    static const double PTS[9][2] = {{0, 0}, {3.5, 3.5}, {-3.5, 3.5}, {3.5, -3.5}, {-3.5, -3.5}, {4.5, 0}, {-4.5, 0}, {0, 4.5}, {0, -4.5}};
+    unsigned char ok[512];
+    uint8_t *sm = NULL;
+    size_t sml, a;
+    signed char *state; /* per tile id: 0 unknown, 1 safe, -1 reported */
+    long *count, *kcount;
+    size_t t;
+    char e2[ERRLEN];
+
+    if (!rm || !ts->n) return;
+    if (resman_get(rm, "surfacemat", 2017, &sm, &sml, e2) != 0 || surfacemat_walkable((const char *)sm, ok, sizeof ok, e2) < 0) {
+        BAD("cannot read surfacemat.2da: %s", e2);
+        free(sm);
+        return;
+    }
+    free(sm);
+    state = calloc(ts->n, 1);
+    count = calloc(ts->n, sizeof *count);
+    kcount = calloc(ts->n, sizeof *kcount);
+    for (a = 0; a < na; a++) {
+        int x, y;
+        if (!ai[a].floor || !ai[a].tid) continue;
+        for (y = 0; y < ai[a].h; y++)
+            for (x = 0; x < ai[a].w; x++) {
+                int tid = ai[a].tid[y * ai[a].w + x];
+                if (ai[a].floor[y * ai[a].w + x] && tid >= 0 && (size_t)tid < ts->n) count[tid]++;
+                char wname[48];
+                uint8_t *wb;
+                size_t wl, c2;
+                wok w;
+                if (!ai[a].floor[y * ai[a].w + x] || tid < 0 || (size_t)tid >= ts->n || state[tid]) continue;
+                snprintf(wname, sizeof wname, "%s", ts->t[tid].model);
+                for (c2 = 0; wname[c2]; c2++) if (wname[c2] >= 'A' && wname[c2] <= 'Z') wname[c2] = (char)(wname[c2] + 32);
+                if (resman_get(rm, wname, 2016, &wb, &wl, e2) != 0 || wok_parse((const char *)wb, &w, e2) != 0) {
+                    BAD("%s: walkmesh %s: %s", ai[a].name, wname, e2);
+                    state[tid] = -1;
+                    continue;
+                }
+                free(wb);
+                if (wok_points_connected(&w, ok, sizeof ok, PTS, 9)) state[tid] = 1;
+                else {
+                    BAD("%s: full-floor tile %s at (%d,%d) is not walkable and connected at its centre, corners and edges", ai[a].name, ts->t[tid].model, x, y);
+                    state[tid] = -1;
+                }
+                wok_free(&w);
+            }
+    }
+    /* kit tiles (a Corridor edge): in the tile's own frame, every Corridor or all-Floor edge midpoint and the door slot must lie on one
+     * connected walkable region of the game's own walkmesh */
+    for (a = 0; a < na; a++) {
+        int x, y;
+        if (!ai[a].tid) continue;
+        for (y = 0; y < ai[a].h; y++)
+            for (x = 0; x < ai[a].w; x++) {
+                static const double DIR[4][2] = {{0, 4.5}, {4.5, 0}, {0, -4.5}, {-4.5, 0}};
+                static const int K1[4] = {C_NW, C_NE, C_SW, C_NW}, K2[4] = {C_NE, C_SE, C_SE, C_SW};
+                const int tid = ai[a].tid[y * ai[a].w + x];
+                const set_tile *st;
+                tile_sig_t sg;
+                double kp[6][2];
+                size_t np = 0, c2;
+                char wname[48];
+                uint8_t *wb;
+                size_t wl;
+                wok w;
+                int k, corr = 0;
+                if (tid < 0 || (size_t)tid >= ts->n || ai[a].floor[y * ai[a].w + x]) continue;
+                st = &ts->t[tid];
+                tile_sig(st, 0, 1, &sg);
+                for (k = 0; k < 4; k++) {
+                    int c = !strcmp(sg.edge[k], "Corridor");
+                    corr |= c;
+                    if (c || (!strcmp(sg.corner[K1[k]], "Floor") && !strcmp(sg.corner[K2[k]], "Floor"))) { kp[np][0] = DIR[k][0]; kp[np++][1] = DIR[k][1]; }
+                }
+                if (!corr) continue;
+                kcount[tid]++;
+                if (state[tid]) continue;
+                if (st->ndslot > 0) { kp[np][0] = st->dslot[0].x; kp[np++][1] = st->dslot[0].y; }
+                snprintf(wname, sizeof wname, "%s", st->model);
+                for (c2 = 0; wname[c2]; c2++) if (wname[c2] >= 'A' && wname[c2] <= 'Z') wname[c2] = (char)(wname[c2] + 32);
+                if (resman_get(rm, wname, 2016, &wb, &wl, e2) != 0 || wok_parse((const char *)wb, &w, e2) != 0) {
+                    BAD("%s: walkmesh %s: %s", ai[a].name, wname, e2);
+                    state[tid] = -1;
+                    continue;
+                }
+                free(wb);
+                if (wok_points_connected(&w, ok, sizeof ok, (const double (*)[2])kp, np)) state[tid] = 1;
+                else {
+                    BAD("%s: corridor tile %s at (%d,%d) is not walkable and connected at its corridor edges and door", ai[a].name, st->model, x, y);
+                    state[tid] = -1;
+                }
+                wok_free(&w);
+            }
+    }
+    printf("full-floor tiles:");
+    for (t = 0; t < ts->n; t++)
+        if (count[t]) printf(" %s x%ld", ts->t[t].model, count[t]);
+    printf("\n");
+    printf("corridor tiles:");
+    for (t = 0; t < ts->n; t++)
+        if (kcount[t]) printf(" %s x%ld", ts->t[t].model, kcount[t]);
+    printf("\n");
+    free(count);
+    free(kcount);
+    free(state);
+}
+
+static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, const tileset *ts, resman *rm, const roster *ro)
+{
+    static const struct { const char *name; uint16_t type; } SC[4] = {{"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS}};
+    const char *acq = gff_get_string(ifo->root, "Mod_OnAcquirItem");
+    int nweak = 0, spawn = erf_find(m, "module", RES_JRL) != NULL || (acq && *acq), cnt[128] = {0}, k, ncreat = 0, ndecor = 0, nlight = 0, ncont = 0, theme = -1;
+    size_t a, q, nm = 0, i, j;
+    marker *mk = NULL, *boss = NULL, *key = NULL, *vault = NULL, *relic = NULL;
+    gff jrl;
+
+    for (a = 0; a < na; a++) spawn |= !strcmp(ai[a].on_enter, "scel_enter");
+    if (!spawn) return;
+
+    for (a = 0; a < na; a++)
+        if (strcmp(ai[a].on_enter, "scel_enter")) BAD("%s: OnEnter is '%s', expected scel_enter", ai[a].name, ai[a].on_enter);
+    if (!acq || strcmp(acq, "scel_acquire")) BAD("Mod_OnAcquirItem is '%s', expected scel_acquire", acq ? acq : "");
+    for (k = 0; k < 4; k++) {
+        const erf_res *r = erf_find(m, SC[k].name, SC[k].type);
+        if (!r || !r->size) BAD("script %s.%s is missing or empty", SC[k].name, res_ext(SC[k].type));
+        else if (SC[k].type == RES_NCS && (r->size < 13 || memcmp(r->data, "NCS V1.0B", 9))) BAD("script %s.ncs is not NCS V1.0B", SC[k].name);
+    }
+    memset(&jrl, 0, sizeof jrl);
+    if (load_gff(m, "module", RES_JRL, &jrl) == 0) {
+        const gff_field *cats = gff_find(jrl.root, "Categories"), *el;
+        const char *tg;
+        if (!cats || cats->type != GFF_LIST || cats->nlist != 1) BAD("module.jrl: expected exactly one category");
+        else if (!(tg = gff_get_string(cats->list[0], "Tag")) || strcmp(tg, "scel_main")) BAD("module.jrl: category tag is not scel_main");
+        else if (!(el = gff_find(cats->list[0], "EntryList")) || el->type != GFF_LIST || el->nlist != 3) BAD("module.jrl: expected 3 journal entries");
+        else
+            for (q = 0; q < 3; q++) {
+                if (gff_get_int(el->list[q], "ID", -1) != (int64_t)q + 1) BAD("module.jrl: entry %zu has ID %lld", q, (long long)gff_get_int(el->list[q], "ID", -1));
+                if (gff_get_int(el->list[q], "End", -1) != (q == 2)) BAD("module.jrl: entry %zu has the wrong End flag", q);
+            }
+        gff_free(&jrl);
+    }
+
+    /* markers */
+    for (a = 0; a < na; a++) {
+        const gff_field *wl = ai[a].git.root ? gff_find(ai[a].git.root, "WaypointList") : NULL;
+        for (q = 0; wl && q < wl->nlist; q++) {
+            const char *t = gff_get_string(wl->list[q], "Tag");
+            marker *p;
+            if (!t || strncmp(t, "SP", 2) || !t[2] || !strchr("CBTVKRDLX", t[2]) || t[3] != '_') continue;
+            if (!resref_ok(t + 4)) { BAD("%s: marker %s has a bad blueprint resref", ai[a].name, t); continue; }
+            mk = realloc(mk, (nm + 1) * sizeof *mk);
+            p = &mk[nm++];
+            p->kind = t[2] == 'T' ? 'B' : t[2]; /* T = the 1-hit-point test boss */
+            nweak += t[2] == 'T';
+            strcpy(p->bp, t + 4);
+            p->area = (int)a;
+            p->cx = (int)(gff_get_float(wl->list[q], "XPosition", -1) / 10.0);
+            p->cy = (int)(gff_get_float(wl->list[q], "YPosition", -1) / 10.0);
+            p->ox = gff_get_float(wl->list[q], "XPosition", -1) - (p->cx * 10.0 + 5.0);
+            p->oy = gff_get_float(wl->list[q], "YPosition", -1) - (p->cy * 10.0 + 5.0);
+            cnt[(int)p->kind]++;
+            if (p->kind == 'C') ncreat++;
+            if (p->kind == 'D') ndecor++;
+            if (p->kind == 'L') nlight++;
+            if (p->kind == 'X') ncont++;
+        }
+    }
+    /* take pointers only once the array has stopped growing */
+    for (i = 0; i < nm; i++) {
+        if (mk[i].kind == 'B') boss = &mk[i];
+        else if (mk[i].kind == 'K') key = &mk[i];
+        else if (mk[i].kind == 'V') vault = &mk[i];
+        else if (mk[i].kind == 'R') relic = &mk[i];
+    }
+    if (cnt['B'] != 1 || cnt['K'] != 1 || cnt['V'] != 1 || cnt['R'] != 1)
+        BAD("expected exactly one boss, key, vault and relic marker; found %d/%d/%d/%d", cnt['B'], cnt['K'], cnt['V'], cnt['R']);
+    else {
+        if (nweak ? (boss->area != 0 || vault->area != 0) : (boss->area != (int)na - 1 || vault->area != (int)na - 1)) BAD("boss and vault must be in the %s area", nweak ? "first" : "last");
+        if (key->area != boss->area || key->cx != boss->cx || key->cy != boss->cy) BAD("key marker is not on the boss marker");
+        if (relic->area != vault->area || relic->cx != vault->cx || relic->cy != vault->cy) BAD("relic marker is not on the vault marker");
+        if (cheb(boss->cx, boss->cy, vault->cx, vault->cy) < 1 || cheb(boss->cx, boss->cy, vault->cx, vault->cy) > 2) BAD("vault is not next to the boss");
+    }
+    for (i = 0; i < nm; i++) {
+        const marker *p = &mk[i];
+        const gff_field *wl = gff_find(ai[p->area].git.root, "WaypointList"), *tl = gff_find(ai[p->area].git.root, "TriggerList");
+        if (strchr("KR", p->kind)) continue;
+        for (j = i + 1; j < nm; j++)
+            if (mk[j].area == p->area && !strchr("KR", mk[j].kind) && absd((mk[j].cx - p->cx) * 10.0 + mk[j].ox - p->ox) < 2.0 &&
+                absd((mk[j].cy - p->cy) * 10.0 + mk[j].oy - p->oy) < 2.0)
+                BAD("%s: two markers within 2 m of each other at (%d,%d)", ai[p->area].name, p->cx, p->cy);
+        for (q = 0; wl && q < wl->nlist; q++) {
+            const char *t = gff_get_string(wl->list[q], "Tag");
+            if (t && !strncmp(t, "SP", 2)) continue;
+            if (cheb(p->cx, p->cy, (int)(gff_get_float(wl->list[q], "XPosition", -1) / 10.0), (int)(gff_get_float(wl->list[q], "YPosition", -1) / 10.0)) < 2)
+                BAD("%s: marker %s_%s at (%d,%d) is next to waypoint %s", ai[p->area].name, p->kind == 'C' ? "SPC" : "SP?", p->bp, p->cx, p->cy, t ? t : "");
+        }
+        for (q = 0; tl && q < tl->nlist; q++)
+            if (cheb(p->cx, p->cy, (int)(gff_get_float(tl->list[q], "XPosition", -1) / 10.0), (int)(gff_get_float(tl->list[q], "YPosition", -1) / 10.0)) < 2)
+                BAD("%s: marker at (%d,%d) is next to trigger %s", ai[p->area].name, p->cx, p->cy, gff_get_string(tl->list[q], "Tag"));
+        if (p->area == 0 && cheb(p->cx, p->cy, (int)(gff_get_float(ifo->root, "Mod_Entry_X", -1) / 10.0), (int)(gff_get_float(ifo->root, "Mod_Entry_Y", -1) / 10.0)) < (nweak ? 1 : 2))
+            BAD("marker at (%d,%d) is next to the module entry", p->cx, p->cy);
+        if (!on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0)) BAD("%s: marker at (%d,%d) is not on a floor cell", ai[p->area].name, p->cx, p->cy);
+    }
+
+    /* scenery must not cut the floor: with every centre-slot D/L/X tile removed the walkable area has no more regions than before
+     * (a corner slot, 3.5 m off the tile centre, leaves the tile walkable) */
+    for (a = 0; a < na; a++) {
+        area_info tmp = ai[a];
+        int any = 0;
+        if (!ai[a].floor) continue;
+        tmp.open = malloc((size_t)ai[a].w * (size_t)ai[a].h);
+        memcpy(tmp.open, ai[a].open, (size_t)ai[a].w * (size_t)ai[a].h);
+        for (i = 0; i < nm; i++)
+            if (mk[i].area == (int)a && strchr("DLX", mk[i].kind) && absd(mk[i].ox) < 1.0 && absd(mk[i].oy) < 1.0 && mk[i].cx >= 0 && mk[i].cy >= 0 && mk[i].cx < tmp.w && mk[i].cy < tmp.h) {
+                tmp.open[mk[i].cy * tmp.w + mk[i].cx] = 0;
+                any = 1;
+            }
+        if (any && walk_components(&tmp, 1) != walk_components(&ai[a], 1)) BAD("%s: scenery splits the walkable area into several regions", ai[a].name);
+        free(tmp.open);
+    }
+    /* roster consistency: one theme supplies every creature; objective items match */
+    if (ro && boss && cnt['B'] == 1) {
+        size_t t;
+        int cr;
+        for (t = 0; t < ro->ntheme; t++)
+            if (in_roster_role(&ro->theme[t], ROLE_BOSS, boss->bp, &cr)) { theme = (int)t; break; }
+        if (theme < 0) BAD("boss %s is not a boss in the roster", boss->bp);
+        for (i = 0; theme >= 0 && i < nm; i++)
+            if (mk[i].kind == 'C') {
+                int role, f = 0;
+                for (role = 0; role < ROLE_BOSS && !f; role++) f = in_roster_role(&ro->theme[theme], role, mk[i].bp, &cr);
+                if (!f) BAD("%s: creature %s is not in theme '%s' of the roster", ai[mk[i].area].name, mk[i].bp, ro->theme[theme].id);
+            }
+        for (i = 0; theme >= 0 && i < nm; i++) {
+            int kd = mk[i].kind == 'D' ? DECO_PROP : mk[i].kind == 'L' ? DECO_LIGHT : mk[i].kind == 'X' ? DECO_CONTAINER : -1, f = 0;
+            size_t e;
+            if (kd < 0) continue;
+            for (e = 0; e < ro->theme[theme].ndeco[kd]; e++) f |= !strcmp(ro->theme[theme].deco[kd][e].resref, mk[i].bp);
+            if (!f) BAD("%s: %s %s is not in the %s list of theme '%s'", ai[mk[i].area].name, DECO_NAME[kd], mk[i].bp, DECO_NAME[kd], ro->theme[theme].id);
+        }
+        if (key && strcmp(key->bp, ro->key)) BAD("key marker %s != roster key %s", key->bp, ro->key);
+        if (vault && strcmp(vault->bp, ro->vault)) BAD("vault marker %s != roster vault %s", vault->bp, ro->vault);
+        if (relic && strcmp(relic->bp, ro->relic)) BAD("relic marker %s != roster relic %s", relic->bp, ro->relic);
+    }
+    /* install: every blueprint resolves */
+    if (rm)
+        for (i = 0; i < nm; i++) {
+            int cr = -1, role;
+            if (ro && theme >= 0 && (mk[i].kind == 'C' || mk[i].kind == 'B'))
+                for (role = 0; role < ROLE_N && cr < 0; role++) (void)in_roster_role(&ro->theme[theme], role, mk[i].bp, &cr);
+            for (j = 0; j < i; j++) if (mk[j].kind == mk[i].kind && !strcmp(mk[j].bp, mk[i].bp)) break;
+            if (j == i) check_blueprint(rm, ai[mk[i].area].name, mk[i].kind, mk[i].bp, cr);
+        }
+    /* install: the tile under every creature/boss/vault marker has a walkable centre (the marker is at the
+     * tile centre, which rotation does not move) */
+    if (rm) {
+        unsigned char ok[512];
+        uint8_t *sm = NULL;
+        size_t sml;
+        char e2[ERRLEN];
+        if (resman_get(rm, "surfacemat", 2017, &sm, &sml, e2) != 0 || surfacemat_walkable((const char *)sm, ok, sizeof ok, e2) < 0)
+            BAD("cannot read surfacemat.2da: %s", e2);
+        else {
+            for (i = 0; i < nm; i++) {
+                const area_info *ar = &ai[mk[i].area];
+                int tid;
+                char wname[48];
+                uint8_t *wb;
+                size_t wl;
+                wok w;
+                if (strchr("KR", mk[i].kind) || !ar->tid || mk[i].cx < 0 || mk[i].cy < 0 || mk[i].cx >= ar->w || mk[i].cy >= ar->h) continue;
+                tid = ar->tid[mk[i].cy * ar->w + mk[i].cx];
+                if (tid < 0 || (size_t)tid >= ts->n || !*ts->t[tid].model) { BAD("%s: marker tile has no walkmesh", ar->name); continue; }
+                { size_t c2; snprintf(wname, sizeof wname, "%s", ts->t[tid].model); for (c2 = 0; wname[c2]; c2++) if (wname[c2] >= 'A' && wname[c2] <= 'Z') wname[c2] = (char)(wname[c2] + 32); }
+                if (resman_get(rm, wname, 2016, &wb, &wl, e2) != 0) { BAD("%s: walkmesh %s: %s", ar->name, wname, e2); continue; }
+                if (wok_parse((const char *)wb, &w, e2) != 0) { BAD("%s: walkmesh %s: %s", ar->name, wname, e2); free(wb); continue; }
+                {
+                    /* the marker's offset from the tile centre, turned back into the tile's own frame (orientation is CCW) */
+                    int o = ar->ori ? ar->ori[mk[i].cy * ar->w + mk[i].cx] : 0;
+                    double lx = mk[i].ox, ly = mk[i].oy;
+                    double tx = o == 0 ? lx : o == 1 ? ly : o == 2 ? -lx : -ly, ty = o == 0 ? ly : o == 1 ? -lx : o == 2 ? -ly : lx;
+                    if (!wok_point_walkable(&w, ok, sizeof ok, tx, ty))
+                        BAD("%s: marker %c_%s at (%d,%d) offset (%.1f,%.1f) stands on unwalkable ground (%s)", ar->name, mk[i].kind, mk[i].bp, mk[i].cx, mk[i].cy, mk[i].ox, mk[i].oy, wname);
+                }
+                wok_free(&w);
+                free(wb);
+            }
+        }
+        if (sm) free(sm);
+    }
+    if (nweak) printf("spawn: test mode, the boss has 1 hit point\n");
+    printf("spawn: %d creature marker(s), %d decor, %d light, %d container, boss %s, vault %s%s%s\n", ncreat, ndecor, nlight, ncont, boss ? boss->bp : "-", vault ? vault->bp : "-",
+           theme >= 0 ? ", theme " : "", theme >= 0 ? ro->theme[theme].id : "");
+    free(mk);
+}
+
+static int usage(void)
+{
+    fputs("usage: dgcheck (--root INSTALL | --set TILESET.set) [--tileset NAME] [--roster ROSTER.txt] MODULE.mod\n", stderr);
+    return 2;
+}
+
+int main(int argc, char **argv)
+{
+    const char *root = NULL, *setfile = NULL, *tsname = "tdc01", *modpath = NULL, *rosterfile = NULL;
+    resman rm;
+    int have_rm = 0;
+    roster ro;
+    int have_ro = 0;
+    int i;
+    tileset ts;
+    erf m;
+    gff ifo;
+    area_info *ai = NULL;
+    size_t na = 0, k;
+    const gff_field *al;
+    uint8_t *buf, *setbuf = NULL;
+    size_t len;
+
+    for (i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--root") && i + 1 < argc) root = argv[++i];
+        else if (!strcmp(argv[i], "--set") && i + 1 < argc) setfile = argv[++i];
+        else if (!strcmp(argv[i], "--tileset") && i + 1 < argc) tsname = argv[++i];
+        else if (!strcmp(argv[i], "--roster") && i + 1 < argc) rosterfile = argv[++i];
+        else if (argv[i][0] != '-' && !modpath) modpath = argv[i];
+        else return usage();
+    }
+    if (!modpath || (!root && !setfile)) return usage();
+
+    if (setfile) {
+        if (read_file(setfile, &setbuf, &len, err) != 0) { fprintf(stderr, "dgcheck: %s\n", err); return 1; }
+        if (tileset_parse((const char *)setbuf, len, &ts, err) != 0) { fprintf(stderr, "dgcheck: %s\n", err); return 1; }
+    } else {
+        if (resman_open(&rm, root, err) != 0 || resman_get(&rm, tsname, 2013, &setbuf, &len, err) != 0 ||
+            tileset_parse((const char *)setbuf, len, &ts, err) != 0) { fprintf(stderr, "dgcheck: %s\n", err); return 1; }
+        have_rm = 1;
+    }
+    if (rosterfile) {
+        uint8_t *rb;
+        size_t rl;
+        if (read_file(rosterfile, &rb, &rl, err) != 0 || roster_parse((const char *)rb, rl, &ro, err) != 0) {
+            fprintf(stderr, "dgcheck: %s\n", err);
+            return 1;
+        }
+        free(rb);
+        have_ro = 1;
+    }
+    if (read_file(modpath, &buf, &len, err) != 0 || erf_parse(buf, len, &m, &GAME_NWN1, err) != 0) {
+        fprintf(stderr, "dgcheck: %s\n", err);
+        return 1;
+    }
+    if (load_gff(&m, "module", RES_IFO, &ifo) != 0) return 1;
+    al = gff_find(ifo.root, "Mod_Area_list");
+    if (!al || al->type != GFF_LIST || !al->nlist) { BAD("module.ifo lists no areas"); return 1; }
+    ai = calloc(al->nlist, sizeof *ai);
+
+    for (k = 0; k < al->nlist; k++) {
+        const char *nm = gff_get_string(al->list[k], "Area_Name");
+        area_info *a = &ai[na];
+        gff are, gic;
+        const gff_field *tl, *wl, *trl;
+        int *tid, *ori, j, comps, nfloor;
+        long viol;
+        size_t q, ndoors;
+        if (!nm) { BAD("Mod_Area_list entry %zu has no Area_Name", k); continue; }
+        snprintf(a->name, sizeof a->name, "%.19s", nm);
+        na++;
+        memset(&are, 0, sizeof are);
+        memset(&gic, 0, sizeof gic);
+        if (load_gff(&m, a->name, RES_ARE, &are) || load_gff(&m, a->name, RES_GIT, &a->git) || load_gff(&m, a->name, RES_GIC, &gic)) {
+            gff_free(&are);
+            gff_free(&gic);
+            continue;
+        }
+        snprintf(a->on_enter, sizeof a->on_enter, "%.39s", gff_get_string(are.root, "OnEnter") ? gff_get_string(are.root, "OnEnter") : "");
+        a->w = (int)gff_get_int(are.root, "Width", 0);
+        a->h = (int)gff_get_int(are.root, "Height", 0);
+        if (strcmp(gff_get_string(are.root, "Tileset") ? gff_get_string(are.root, "Tileset") : "", tsname))
+            BAD("%s: tileset is not %s", a->name, tsname);
+        tl = gff_find(are.root, "Tile_List");
+        if (!tl || tl->type != GFF_LIST || (int)tl->nlist != a->w * a->h || a->w <= 0 || a->h <= 0) {
+            BAD("%s: Tile_List length %zu != Width*Height (%d*%d)", a->name, tl ? tl->nlist : 0, a->w, a->h);
+            a->w = a->h = 0;
+            gff_free(&are);
+            gff_free(&gic);
+            continue;
+        }
+        tid = malloc(tl->nlist * sizeof *tid);
+        ori = malloc(tl->nlist * sizeof *ori);
+        a->floor = calloc(tl->nlist, 1);
+        a->open = calloc(tl->nlist, 1);
+        for (q = 0; q < tl->nlist; q++) {
+            tid[q] = (int)gff_get_int(tl->list[q], "Tile_ID", -1);
+            ori[q] = (int)gff_get_int(tl->list[q], "Tile_Orientation", -1);
+            if (tid[q] < 0 || (size_t)tid[q] >= ts.n || ori[q] < 0 || ori[q] > 3) {
+                BAD("%s: tile %zu has invalid id/orientation (%d/%d)", a->name, q, tid[q], ori[q]);
+                tid[q] = 0; ori[q] = 0;
+                continue;
+            }
+            {
+                static const int EC[4][2] = {{C_NW, C_NE}, {C_NE, C_SE}, {C_SW, C_SE}, {C_NW, C_SW}}; /* T R B L */
+                tile_sig_t sg;
+                int c, f = 1;
+                tile_sig(&ts.t[tid[q]], ori[q], 1, &sg);
+                for (c = 0; c < 4; c++) f &= !strcmp(sg.corner[c], "Floor");
+                a->floor[q] = (unsigned char)f;
+                for (c = 0; c < 4; c++)
+                    if ((!strcmp(sg.corner[EC[c][0]], "Floor") && !strcmp(sg.corner[EC[c][1]], "Floor")) || !strcmp(sg.edge[c], "Corridor"))
+                        a->open[q] |= (unsigned char)(1 << c);
+                for (c = 0; c < 4; c++)
+                    if (f || !strcmp(sg.edge[c], "Corridor")) a->open[q] |= 16;
+            }
+        }
+        viol = tileset_violations(&ts, a->w, a->h, tid, ori, ORD_ROW_BOTTOM, 1, 1);
+        if (viol) BAD("%s: %ld tile adjacency violations", a->name, viol);
+        floor_components(a, &nfloor);
+        comps = walk_components(a, 0);
+        if (comps != 1) BAD("%s: walkable tiles form %d regions (expected 1)", a->name, comps);
+        ndoors = check_doors(a, tid, ori, &ts);
+
+        /* GIT objects */
+        wl = gff_find(a->git.root, "WaypointList");
+        trl = gff_find(a->git.root, "TriggerList");
+        for (q = 0; wl && q < wl->nlist; q++) {
+            double x = gff_get_float(wl->list[q], "XPosition", -1), y = gff_get_float(wl->list[q], "YPosition", -1);
+            size_t t2;
+            if (!on_floor(a, x, y)) BAD("%s: waypoint %s is not on a floor cell", a->name, gff_get_string(wl->list[q], "Tag"));
+            for (t2 = 0; trl && t2 < trl->nlist; t2++)
+                if (in_poly(trl->list[t2], x, y)) BAD("%s: waypoint %s lies inside trigger %s", a->name, gff_get_string(wl->list[q], "Tag"), gff_get_string(trl->list[t2], "Tag"));
+        }
+        for (q = 0; trl && q < trl->nlist; q++) {
+            double x = gff_get_float(trl->list[q], "XPosition", -1), y = gff_get_float(trl->list[q], "YPosition", -1);
+            if (!on_floor(a, x, y)) BAD("%s: trigger %s is not on a floor cell", a->name, gff_get_string(trl->list[q], "Tag"));
+        }
+        /* GIC mirrors GIT */
+        for (j = 0; j < 9; j++) {
+            const gff_field *g1 = gff_find(a->git.root, GIT_LISTS[j]), *g2 = gff_find(gic.root, GIT_LISTS[j]);
+            size_t n1 = g1 && g1->type == GFF_LIST ? g1->nlist : 0, n2 = g2 && g2->type == GFF_LIST ? g2->nlist : 0;
+            if (n1 != n2) { BAD("%s: GIC %s has %zu entries, GIT has %zu", a->name, GIT_LISTS[j], n2, n1); continue; }
+            for (q = 0; q < n1; q++) if (g1->list[q]->id != g2->list[q]->id) BAD("%s: GIC %s[%zu] struct id differs", a->name, GIT_LISTS[j], q);
+        }
+        printf("area %-10s %2dx%-2d  adjacency violations %ld, %d full-floor cells, %d walkable region(s), %zu doors, %zu waypoints, %zu triggers\n", a->name,
+               a->w, a->h, viol, nfloor, comps, ndoors, wl ? wl->nlist : 0, trl ? trl->nlist : 0);
+        a->tid = tid; a->ori = ori;
+        gff_free(&are); gff_free(&gic);
+    }
+
+    /* transitions resolve to waypoints in a different area */
+    for (k = 0; k < na; k++) {
+        const gff_field *trl = ai[k].git.root ? gff_find(ai[k].git.root, "TriggerList") : NULL;
+        size_t q, o;
+        for (q = 0; trl && q < trl->nlist; q++) {
+            const char *link = gff_get_string(trl->list[q], "LinkedTo");
+            int found = 0;
+            if (gff_get_int(trl->list[q], "LinkedToFlags", 0) != 2) BAD("%s: trigger %s is not linked to a waypoint (flags)", ai[k].name, gff_get_string(trl->list[q], "Tag"));
+            for (o = 0; link && o < na; o++) {
+                const gff_field *wl = o != k && ai[o].git.root ? gff_find(ai[o].git.root, "WaypointList") : NULL;
+                size_t w;
+                for (w = 0; wl && w < wl->nlist; w++)
+                    if (!strcmp(gff_get_string(wl->list[w], "Tag") ? gff_get_string(wl->list[w], "Tag") : "", link)) found++;
+            }
+            if (found != 1) BAD("%s: trigger %s links to '%s' which matches %d waypoints in other areas", ai[k].name, gff_get_string(trl->list[q], "Tag"), link ? link : "", found);
+        }
+    }
+    /* module entry */
+    {
+        const char *ea = gff_get_string(ifo.root, "Mod_Entry_Area");
+        double x = gff_get_float(ifo.root, "Mod_Entry_X", -1), y = gff_get_float(ifo.root, "Mod_Entry_Y", -1);
+        for (k = 0; k < na && (!ea || strcmp(ai[k].name, ea)); k++) ;
+        if (k == na) BAD("module entry area '%s' is not in Mod_Area_list", ea ? ea : "");
+        else if (ai[k].floor && !on_floor(&ai[k], x, y)) BAD("module entry position (%.1f, %.1f) is not on a floor cell of %s", x, y, ea);
+    }
+    check_floor_tiles(ai, na, &ts, have_rm ? &rm : NULL);
+    check_spawn(&m, &ifo, ai, na, &ts, have_rm ? &rm : NULL, have_ro ? &ro : NULL);
+    if (problems)
+        printf("dgcheck: %d problem(s)\n", problems);
+    else
+        printf("dgcheck: ok (%zu areas)\n", na);
+    for (k = 0; k < na; k++) {
+        free(ai[k].floor);
+        free(ai[k].tid);
+        free(ai[k].ori);
+        free(ai[k].open);
+        gff_free(&ai[k].git);
+    }
+    free(ai);
+    gff_free(&ifo);
+    if (have_rm) resman_close(&rm);
+    erf_free(&m);
+    tileset_free(&ts);
+    free(setbuf);
+    return fflush(stdout) ? 1 : (problems ? 1 : 0);
+}

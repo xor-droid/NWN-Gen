@@ -1,0 +1,12 @@
+nwndgen-recipe 1
+# Test recipe: a three-area chain with different sizes and room counts.
+tilepack tilepack_test.txt
+template_are tpl_are.are
+template_git tpl_git.git
+module_name Chain Test
+module_tag CHAIN_TEST
+module_description Synthetic fixture for the tests.
+support 1 4 1 4
+area ca 12 9 4 Chain A
+area cb 9 12 3 Chain B
+area cc 16 16 5 Chain C

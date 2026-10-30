@@ -1,0 +1,54 @@
+/* Dungeon recipe: the text file that tells the generator which areas to build.
+ *
+ *   nwndgen-recipe 1
+ *   tilepack tilepack_tdc01.txt          (paths are relative to the recipe file)
+ *   template_are tpl_are.are             (donor ARE, binary GFF)
+ *   template_git tpl_git.git             (donor GIT: AreaProperties + a transition trigger)
+ *   module_name <text>
+ *   module_tag <TAG>
+ *   module_description <text>
+ *   support <min_level> <max_level> <min_party> <max_party>
+ *   area <resref> <W> <H> <rooms> <display name...>      (one per area, chained in order)
+ *   roster <file>                        (optional) creature roster, see roster.h; needs scripts
+ *   scripts <dir>                        (optional) directory holding scel_enter/scel_acquire .nss/.ncs
+ *   spawn_mode full|boss_only            (optional) boss_only = just the boss, with 1 hit point
+ *   template_door tpl_door.git           (optional) donor GIT with one stock door; needed by doors plain
+ *   corridors wide|kit                  (optional) kit = stock corridor-kit pieces (needs a tilepack with kit records)
+ *   doors none|plain                    (optional) plain = a closed, unlocked door in each kit corridor; needs corridors kit
+ *
+ * '#' starts a comment line. Fields are separated by single spaces. */
+#ifndef NWNDGEN_RECIPE_H
+#define NWNDGEN_RECIPE_H
+
+#include <stddef.h>
+
+#define RECIPE_MAX_AREAS 16
+#define RECIPE_PATH_MAX 1024
+#define RECIPE_AREA_MIN 6
+#define RECIPE_AREA_MAX 32 /* engine limit on area width/height in tiles */
+#define RECIPE_ROOMS_MIN 2
+#define RECIPE_ROOMS_MAX 8
+
+typedef struct {
+    char resref[17];
+    unsigned w, h, rooms;
+    char name[128];
+} recipe_area;
+
+typedef struct {
+    char tilepack[RECIPE_PATH_MAX], template_are[RECIPE_PATH_MAX], template_git[RECIPE_PATH_MAX];
+    char template_door[RECIPE_PATH_MAX]; /* GIT holding one stock door to clone; needed by doors plain */
+    char roster[RECIPE_PATH_MAX], scripts[RECIPE_PATH_MAX]; /* both empty = no creatures or objective */
+    int boss_only; /* spawn_mode boss_only: no minions, the boss has 1 hit point (quick test runs) */
+    int kit_corridors; /* corridors kit: narrow stock corridor pieces instead of full-floor 10 m corridors */
+    int doors;         /* doors plain: one closed, unlocked stock door in each kit corridor (needs corridors kit) */
+    char module_name[128], module_tag[33], module_desc[512];
+    unsigned min_level, max_level, min_party, max_party;
+    recipe_area areas[RECIPE_MAX_AREAS];
+    size_t nareas;
+} recipe;
+
+/* dir: directory the relative paths are resolved against ("" = current). */
+int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char *err);
+
+#endif

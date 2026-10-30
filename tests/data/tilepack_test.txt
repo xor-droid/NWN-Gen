@@ -1,0 +1,64 @@
+nwndgen-tilepack 1
+tileset tsttest
+cell WWWW 1 101 0
+cell WWWF 2 102 1
+cell WWWF 5 103 2
+cell WWFW 3 104 2
+cell WWFW 1 105 3
+cell WWFW 4 106 0
+cell WWFF 4 107 3
+cell WFWW 5 108 0
+cell WFWW 3 109 1
+cell WFWF 1 110 1
+cell WFWF 4 111 2
+cell WFWF 2 112 3
+cell WFFW 2 113 2
+cell WFFF 3 114 3
+cell WFFF 1 115 0
+cell FWWW 4 116 0
+cell FWWW 2 117 1
+cell FWWW 5 118 2
+cell FWWF 5 119 1
+cell FWFW 1 120 2
+cell FWFW 4 121 3
+cell FWFF 2 122 3
+cell FWFF 5 123 0
+cell FWFF 3 124 1
+cell FFWW 3 125 0
+cell FFWF 4 126 1
+cell FFWF 2 127 2
+cell FFFW 5 128 2
+cell FFFW 3 129 3
+cell FFFW 1 130 0
+cell FFFF 1 131 3
+light 101 1 7 2 3 0 1 2
+light 102 2 7 3 3 0 1 2
+light 103 3 7 4 3 0 1 2
+light 104 4 7 5 3 0 1 2
+light 105 5 7 6 3 0 1 2
+light 106 6 7 7 3 0 1 2
+light 107 7 7 8 3 0 1 2
+light 108 8 7 0 3 0 1 2
+light 109 9 7 1 3 0 1 2
+light 110 10 7 2 3 0 1 2
+light 111 11 7 3 3 0 1 2
+light 112 12 7 4 3 0 1 2
+light 113 13 7 5 3 0 1 2
+light 114 14 7 6 3 0 1 2
+light 115 15 7 7 3 0 1 2
+light 116 16 7 8 3 0 1 2
+light 117 17 7 0 3 0 1 2
+light 118 18 7 1 3 0 1 2
+light 119 19 7 2 3 0 1 2
+light 120 20 7 3 3 0 1 2
+light 121 21 7 4 3 0 1 2
+light 122 22 7 5 3 0 1 2
+light 123 23 7 6 3 0 1 2
+light 124 24 7 7 3 0 1 2
+light 125 25 7 8 3 0 1 2
+light 126 26 7 0 3 0 1 2
+light 127 27 7 1 3 0 1 2
+light 128 28 7 2 3 0 1 2
+light 129 29 7 3 3 0 1 2
+light 130 30 7 4 3 0 1 2
+light 131 31 7 5 3 0 1 2

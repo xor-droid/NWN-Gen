@@ -1,0 +1,68 @@
+nwndgen-roster 1
+# Stock NWN1 blueprints only. `nwnpack roster-check` verifies each against an install:
+# hostile faction, CR as listed, scripts present; scenery is inert (props, lights) or an unlocked container.
+# Not playtested for balance or looks. Scenery weights are relative; the ambience colours are RRGGBB.
+vault plc_chest1
+key nw_it_msmlmisc11
+relic nw_it_msmlmisc05
+
+theme goblins Goblins
+minion nw_goblina 0.25
+minion nw_goblinb 0.25
+minion nw_hobgoblin001 0.25
+standard nw_hobgoblin002 2
+boss nw_hobgoblin002 2
+boss nw_gobchiefb 3
+prop plc_bedrolls 4
+prop plc_campfr 2
+prop plc_woodpile 3
+prop plc_keg 3
+prop plc_sacks 3
+prop plc_garbage 3
+prop plc_bones 2
+prop plc_haybundle 3
+light plc_brazier 3
+light plc_freetorch 2
+container plc_barrel 3
+container plc_box1 2
+ambience 3a3020 e0802a 4a2810 10 55
+
+theme kobolds Kobolds
+minion nw_kobold001 0.33
+minion nw_kobold002 0.33
+standard nw_kobold003 2
+standard nw_kobold004 2
+boss nw_kobold005 2
+boss nw_kobold006 2
+prop plc_rubble 4
+prop plc_stones 3
+prop plc_boulder 2
+prop plc_sacks 2
+prop plc_haybundle 2
+prop plc_bones 1
+light plc_brazier 2
+light plc_freetorch 3
+container plc_barrel 2
+container plc_box2 2
+ambience 33291f c8a060 3a2c1c 9 50
+
+theme undead The restless dead
+minion nw_skeleton 0.5
+minion nw_zombie01 1
+minion nw_zombie02 1
+standard nw_ghoul 2
+boss nw_ghoul 2
+boss nw_zombtyrant 3
+prop plc_bones 4
+prop plc_pileskulls 3
+prop plc_bloodstain 3
+prop plc_headstone 2
+prop plc_urn 2
+prop plc_statue2 1
+prop plc_spdcocoon 1
+prop plc_rubble 2
+light plc_candelabra 3
+light plc_brazier 2
+container plc_box3 2
+container plc_barrel 1
+ambience 1c2b3a 6a8ac8 1a2a3a 13 40
