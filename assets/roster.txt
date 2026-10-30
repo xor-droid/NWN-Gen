@@ -12,6 +12,81 @@ henchman nw_hen_gal
 henchman nw_hen_gri
 henchman nw_hen_lin
 henchman nw_hen_sha
+# furniture for the recipe key "dressing": each room gets a type, one `centre` centrepiece (mid and high) and corner pieces of it
+# (inert blueprints only; weights are relative; candelabra and torches also give light)
+roomprop barracks plc_bed 4
+roomprop barracks plc_cot 3
+roomprop barracks plc_bedrolls 3
+roomprop barracks plc_weaponrack 3
+roomprop barracks plc_bench 2
+roomprop barracks plc_freetorch 2
+roomprop barracks plc_stool 1
+roomprop barracks plc_spearcorpse 1
+roomprop barracks plc_table 3 centre
+roomprop barracks plc_campfrwspit 2 centre
+roomprop storage plc_sacks 4
+roomprop storage plc_keg 3
+roomprop storage plc_urn 2
+roomprop storage plc_haybundle 2
+roomprop storage plc_woodpile 2
+roomprop storage plc_arrowcorpse 1
+roomprop storage plc_fullwagon 2 centre
+roomprop storage plc_emptywagon 1 centre
+roomprop shrine plc_candelabra 4
+roomprop shrine plc_statue1 2
+roomprop shrine plc_statue2 2
+roomprop shrine plc_pedestal 2
+roomprop shrine plc_throwrug 2
+roomprop shrine plc_flag1 1
+roomprop shrine plc_flag2 1
+roomprop shrine plc_altrgood 2 centre
+roomprop shrine plc_altrneutral 2 centre
+roomprop shrine plc_altrevil 1 centre
+roomprop shrine plc_fountain 1 centre
+roomprop library x0_bookcase2 4
+roomprop library x0_bookcase03 3
+roomprop library x0_smalldesk 2
+roomprop library plc_lecturn 2
+roomprop library plc_chair 2
+roomprop library plc_candelabra 2
+roomprop library plc_throwrug 2
+roomprop library x0_librarydesk 3 centre
+roomprop library plc_table 2 centre
+roomprop crypt plc_bones 4
+roomprop crypt plc_pileskulls 3
+roomprop crypt plc_bloodstain 2
+roomprop crypt plc_headstone 2
+roomprop crypt plc_arrowcorpse 2
+roomprop crypt plc_spearcorpse 2
+roomprop crypt plc_freetorch 1
+roomprop crypt plc_pillar2 1
+roomprop crypt x0_tomb 3 centre
+roomprop crypt x3_plc_sarcoph 3 centre
+roomprop prison plc_stocks 3
+roomprop prison plc_flrshackles 3
+roomprop prison plc_bloodstain 2
+roomprop prison plc_bones 2
+roomprop prison plc_freetorch 2
+roomprop prison plc_hangmnpost 1
+roomprop prison plc_animalcage 1
+roomprop prison plc_torture1 2 centre
+roomprop prison plc_humancage 2 centre
+roomprop prison plc_torture2 1 centre
+
+# scenery along the stock kit corridors for the recipe key "corridor_dressing" (inert blueprints only; weights are relative;
+# torches also light the corridor)
+corridorprop plc_freetorch 4
+corridorprop plc_rubble 3
+corridorprop plc_bones 2
+corridorprop plc_stones 2
+corridorprop plc_keg 2
+corridorprop plc_sacks 2
+corridorprop x2_plc_web 2
+corridorprop plc_garbage 1
+corridorprop plc_woodpile 1
+corridorprop plc_pileskulls 1
+corridorprop plc_bloodstain 1
+corridorprop plc_waterdrip 1
 
 theme goblins Goblins
 gold 8

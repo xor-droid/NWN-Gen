@@ -98,25 +98,33 @@ int tilepack_parse(const char *text, size_t len, tilepack *p, char *err)
         } else if (!strncmp(buf, "kit ", 4)) {
             char sg[8], mk[8];
             unsigned w;
-            int tid, ori, used = 0, idx, mask = 0, dmask = 0, has_door = 0, app = 22;
+            int tid, ori, used = 0, idx, mask = 0, dmask = 0, has_door = 0, app = 22, props = 0;
             double dx = 0, dy = 0, dz = 0, br = 0;
             pack_kit *pk;
             if (sscanf(buf + 4, "%7s %7s %u %d %d%n", sg, mk, &w, &tid, &ori, &used) != 5) {
-                set_err(err, "tilepack line %d: expected 'kit SIG EDGES weight tile orientation [door X Y Z BEARING [LOOK]]'", line);
+                set_err(err, "tilepack line %d: expected 'kit SIG EDGES weight tile orientation [door X Y Z BEARING [LOOK]] [props N]'", line);
                 goto bad;
             }
             q = buf + 4 + used;
-            if (*q) {
+            if (*q && strncmp(q, " props ", 7)) {
                 int used2 = 0, used3 = 0;
                 if (sscanf(q, " door %lf %lf %lf %lf%n", &dx, &dy, &dz, &br, &used2) != 4) {
                     set_err(err, "tilepack line %d: bad kit door suffix", line);
                     goto bad;
                 }
-                if (q[used2] && (sscanf(q + used2, " %d%n", &app, &used3) != 1 || q[used2 + used3] || app < 0 || app > 255)) {
+                if (q[used2] && strncmp(q + used2, " props ", 7) && (sscanf(q + used2, " %d%n", &app, &used3) != 1 || (q[used2 + used3] && strncmp(q + used2 + used3, " props ", 7)) || app < 0 || app > 255)) {
                     set_err(err, "tilepack line %d: bad kit door suffix (look must be 0-255)", line);
                     goto bad;
                 }
                 has_door = 1;
+                q += used2 + used3;
+            }
+            if (*q) {
+                int used4 = 0;
+                if (sscanf(q, " props %d%n", &props, &used4) != 1 || q[used4] || props < 1 || props > 63) {
+                    set_err(err, "tilepack line %d: bad kit props suffix (props must be 1-63)", line);
+                    goto bad;
+                }
             }
             idx = strlen(sg) == 4 ? sig_index(sg) : -1;
             for (k = 0; k < 4; k++) {
@@ -131,7 +139,7 @@ int tilepack_parse(const char *text, size_t len, tilepack *p, char *err)
             p->kit = xrealloc(p->kit, (p->nkit + 1) * sizeof *p->kit);
             pk = &p->kit[p->nkit++];
             pk->sig = idx; pk->mask = mask; pk->dmask = dmask; pk->w = w; pk->tid = tid; pk->orient = ori;
-            pk->has_door = has_door; pk->dx = dx; pk->dy = dy; pk->dz = dz; pk->bearing = br; pk->app = app;
+            pk->props = props; pk->has_door = has_door; pk->dx = dx; pk->dy = dy; pk->dz = dz; pk->bearing = br; pk->app = app;
         } else if (!strncmp(buf, "light ", 6)) {
             pack_light *pl;
             long tid, vv;
@@ -847,7 +855,7 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
         const spawn_pt *p = &a->sp[m];
         gff_struct *w;
         snprintf(tag, sizeof tag, "SP%c_%s", p->kind, p->bp);
-        w = make_waypoint(tag, "Spawn point", cc(p->cx) + 3.5 * p->ox, cc(p->cy) + 3.5 * p->oy, fx[p->face & 7], fy[p->face & 7], err);
+        w = make_waypoint(tag, "Spawn point", cc(p->cx) + (p->custom ? p->xcm / 100.0 : 3.5 * p->ox), cc(p->cy) + (p->custom ? p->ycm / 100.0 : 3.5 * p->oy), fx[p->face & 7], fy[p->face & 7], err);
         if (!w)
             return -1;
         if ((p->loot[0][0] && add_var(w, "scel_loot", 1, p->loot[0], 0, err)) || (p->loot[1][0] && add_var(w, "scel_loot2", 1, p->loot[1], 0, err)) ||
@@ -1199,6 +1207,7 @@ int dungeon_build_ex(const recipe *r, const tilepack *tp, const gff *tpl_are, co
                     }
                     t[y * (int)ra->w + x].tid = tp->kit[k].tid;
                     t[y * (int)ra->w + x].orient = tp->kit[k].orient;
+                    a->kprops[y][x] = (unsigned char)tp->kit[k].props;
                     continue;
                 }
                 for (k = 0; k < pc->n; k++)

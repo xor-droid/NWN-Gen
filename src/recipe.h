@@ -14,6 +14,8 @@
  *   spawn_mode full|boss_only|loot_test  (optional) boss_only = just the boss, with 1 hit point; loot_test = five weak creatures + weak boss, all in the first area
  *   henchmen N                           (optional, 0-5, default 0) N stock henchmen from the roster join the first player
  *   loot_amount low|mid|high           (optional, default mid) how much creatures carry: low = half the item chances and gold, high = 1.5x the chances (at most 100%) and double gold
+ *   dressing off|low|mid|high           (optional, default off) furnish rooms by type (barracks, storage, shrine, library, crypt, prison) from the roster's roomprop lines: low = 1 piece per room, mid = 2 and some pairs, high = 3 and more pairs; needs roster and scripts
+ *   corridor_dressing off|low|mid|high  (optional, default off) props along the stock kit corridors from the roster's corridorprop lines; needs roster, scripts and corridors kit
  *   seed N                              (optional) run defaults: unsigned 64-bit seed, party size 1-32, character levels 1-40;
  *   party_size N                         the command-line options of the same name override them
  *   min_level N | max_level N
@@ -51,6 +53,8 @@ typedef struct {
     int loot_test;     /* spawn_mode loot_test: five creatures and the boss, all in the first area, 1 hit point and unarmed (loot checks) */
     int henchmen;      /* henchmen N: stock henchmen from the roster that join the first player (needs roster and scripts) */
     int loot_amount;   /* loot_amount low|mid|high: 1 = low, 0 = mid (default), 2 = high; scales item chances and gold (needs roster and scripts) */
+    int corridor_dressing; /* corridor_dressing off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; needs roster, scripts and corridors kit */
+    int dressing;      /* dressing off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; room-type furniture (needs roster and scripts) */
     int has_seed, has_party, has_min_lvl, has_max_lvl; /* run defaults given in the recipe; the command line overrides them */
     uint64_t run_seed;
     unsigned run_party, run_min_lvl, run_max_lvl;

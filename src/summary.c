@@ -70,7 +70,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     size_t nl2 = 0;
     char bossloot[2][17] = {"", ""};
     char bossbp[17] = "";
-    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount};
+    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount, r->dressing, r->corridor_dressing};
 
     put(&b, "\n%s (seed %llu)\n", r->module_name, (unsigned long long)cfg->seed);
     if (cfg->min_level == cfg->max_level)
@@ -200,6 +200,14 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
             for (ri = 0; ri < ar->lay.nrooms; ri++)
                 put(&b, " %d", rooms_c[ri]);
             put(&b, "\n    scenery: %d decor, %d %s, %d %s\n", nd, nl, plural(nl, "light", "lights"), nx, plural(nx, "container", "containers"));
+            if (r->corridor_dressing)
+                put(&b, "    corridor props (corridor_dressing %s): %d\n", r->corridor_dressing == 1 ? "low" : r->corridor_dressing == 2 ? "mid" : "high", spawn_corridor_props(ar));
+            if (r->dressing) {
+                put(&b, "    room types (dressing %s):", r->dressing == 1 ? "low" : r->dressing == 2 ? "mid" : "high");
+                for (ri = 0; ri < ar->lay.nrooms; ri++)
+                    put(&b, " %s", ar->rtype[ri] ? RT_NAME[ar->rtype[ri] - 1] : "plain");
+                put(&b, "\n");
+            }
         }
     }
 

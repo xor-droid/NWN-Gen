@@ -168,6 +168,8 @@ scripts ../assets/scripts           directory with scel_enter.{nss,ncs} and scel
 spawn_mode full                     optional: full (default) or boss_only
 henchmen 0                        optional: 0-5 stock AI henchmen join the first player, see Henchmen below
 loot_amount mid                    optional: low, mid (default) or high, see Level-scaled loot
+dressing off                       optional: off (default), low, mid or high, see Room dressing
+corridor_dressing off              optional: off (default), low, mid or high, needs corridors kit, see Corridor dressing
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions
@@ -215,6 +217,8 @@ relic nw_it_msmlmisc05              the objective item
 theme goblins Goblins               id, then the text used in the journal ("Goblins hold this place.")
 minion nw_goblina 0.25              role (minion|standard|elite|boss), UTC resref, CR (two decimals max)
 prop|light|container <utp resref> <weight>   scenery for the theme (optional, see Scenery below)
+roomprop <type> <utp resref> <weight>      global: furniture of a room type (barracks storage shrine library crypt prison), see Room dressing
+corridorprop <utp resref> <weight>       global: scenery along kit corridors, see Corridor dressing
 ambience RRGGBB RRGGBB RRGGBB amount clip       area light for the theme (optional)
 loot <uti resref> <chance> <min CR> <max CR>   level-scaled item a creature may carry (optional, see Level-scaled loot)
 gold <gp per CR>                    gold the theme's creatures carry (optional)
@@ -230,6 +234,36 @@ The manifest records the roster and script hashes, the chosen theme and per-area
 **Generated and validated, not playable until loaded in the game.**
 
 
+
+#### Room dressing (same `roster`, recipe key `dressing`)
+
+`dressing off|low|mid|high` (default `off`, needs `roster` and `scripts`) gives every room a type and furnishes it. The types are barracks, storage, shrine, library, crypt and
+prison; each is a list of global `roomprop <type> <utp resref> <weight> [centre]` lines in the roster (inert stock placeables only, `nwnpack roster-check` rejects usable, locked, plot or
+trapped ones). A room gets a random type, every type once before any repeats. Each room then gets, from its type's lists:
+
+* a **centrepiece** (mid and high): a `centre` line (altar, table, tomb, cage ...) in the middle of the tile nearest the room's centre, refused if it would cut the floor in two;
+* **wall pieces**: 3 (low), 5 (mid) or 8 (high) on room corners (wall corners favoured) or in the middle of a wall side (0.5 m off the wall, facing into the room), never in a doorway mouth or beside the boss, the vault or a transition. At mid (a third of the
+  pieces) and high (half) a piece may be paired with the facing corner of the next tile (3 m away) so beds and bookcases stand in rows.
+
+With dressing on (and `roomprop` lines in the roster) the theme's generic `prop` scenery is cut to a third so the room furniture carries the look; lights and containers are unchanged.
+Candelabras and torches in the lists also light the rooms. Small rooms hold fewer pieces than the quota because doorway mouths and the boss, vault and arrival tiles are kept clear.
+The pieces are ordinary decor markers (`SPD_`), so `scel_enter` needs no change. A roster without `roomprop` lines, or `off`, is byte-identical to leaving the key out;
+layouts, creatures and loot never move (own RNG domain `nwndgen/rooms/1`, algorithm id `rooms/1`, run after the loot plan). The summary prints `room types` per area
+and the manifest records `dressing=`, `dressing_algorithm=` and `rooms.<area>=type,type,...`. The marker limit per area is now 192.
+Generated and validated; **not yet confirmed in game.**
+
+#### Corridor dressing (same `roster`, recipe key `corridor_dressing`)
+
+`corridor_dressing off|low|mid|high` (default `off`, needs `roster`, `scripts` and `corridors kit`) puts props along the stock kit corridors from global
+`corridorprop <utp resref> <weight>` roster lines (rubble, bones, torches, barrels, cobwebs ...; inert blueprints only, checked by `nwnpack roster-check`).
+A kit corridor is 5 m wide, so a prop stands against a wall (1.6 m off the centre line, facing the path) at -2, 0 or +2 m along a straight cell, one per cell (two on opposite walls
+at `high`, sometimes). low, mid and high furnish about 4, 6.5 and 9 in 10 of the eligible cells. Elbows, the first and last cell of every corridor (the room entrances),
+cells with a door and cells beside the arrival or a transition stay clear.
+The spots come from the pack: `nwnpack tilepack-kit` now ends each straight corridor record with `props N`, six bits naming the spots whose point is walkable on that tile in that
+orientation and where the corridor is its full width (some stock straights bulge or narrow), so a prop is never placed on a pit or in a narrowing; the validator re-proves every prop against the real
+walkmesh. **Rerun `nwnpack tilepack-kit` after updating**: an older pack still builds, it simply has no prop spots (no corridor props). Pieces are ordinary decor markers (`SPD_`), so `scel_enter` needs no change.
+Own RNG domain `nwndgen/corridor/1`, algorithm id `corridor/1`, run after room dressing; without the key, or `off`, output is byte-identical. The summary prints `corridor props` per area and the manifest
+records `corridor_dressing=`, `corridor_algorithm=` and `corridor_props.<area>=N`. Generated and validated; **not yet confirmed in game.**
 
 #### Level-scaled loot (same `roster`)
 

@@ -35,6 +35,7 @@ typedef struct {
     int tid, orient;
     int has_door;
     double dx, dy, dz, bearing;   /* door slot, tile-local metres; bearing in radians */
+    int props;                    /* corridor straights: 6 bits of prop spots proven walkable in this orientation (bit k: side -1 for k<3, +1 otherwise; along the path -2, 0, +2 m for k%3 = 0, 1, 2); 0 = none */
     int app;                      /* door look: the Appearance (doortypes.2da row) of the slot, 22 unless the record says otherwise */
 } pack_kit;
 
@@ -86,6 +87,8 @@ typedef struct {
     int has_start, has_prev, has_next;
     spawn_pt *sp;                     /* marker plan (empty unless spawning is on) */
     size_t nsp;
+    unsigned char rtype[RECIPE_ROOMS_MAX]; /* dressing: room type + 1 per room (0 = plain) */
+    unsigned char kprops[RECIPE_AREA_MAX][RECIPE_AREA_MAX]; /* kit corridor cells: the prop spot bits of the chosen tile (see pack_kit.props) */
     dungeon_door *door;               /* doors in kit corridors (doors plain) */
     size_t ndoor;
     uint8_t *are, *git, *gic;         /* serialized GFF V3.2 */

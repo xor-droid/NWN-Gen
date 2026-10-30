@@ -1,0 +1,43 @@
+nwndgen-roster 1
+# Synthetic roster for the tests: the blueprint names do not exist in any game.
+vault t_vault
+key t_key
+relic t_relic
+
+theme alpha Alpha Raiders
+minion t_a_min1 0.25
+minion t_a_min2 0.5
+standard t_a_std 1
+elite t_a_elite 2
+boss t_a_boss 2
+boss t_a_boss3 3
+prop t_a_p1 3
+prop t_a_p2 1
+light t_a_l1 2
+container t_a_x1 1
+ambience 102030 a0b0c0 ff0000 7 60
+
+theme beta The Beta Horde
+minion t_b_min 0.33
+standard t_b_std 1.5
+boss t_b_boss 1.5
+prop t_b_p1 1
+light t_b_l1 1
+container t_b_x1 5
+container t_b_x2 1
+
+# room furniture for the dressing tests (global)
+roomprop barracks t_bed 4
+roomprop barracks t_rack 2
+roomprop storage t_sack 3
+roomprop shrine t_altar 1
+roomprop library t_shelf 3
+roomprop library t_desk 1
+roomprop crypt t_bones 2
+roomprop prison t_stocks 2
+roomprop barracks t_table 2 centre
+roomprop shrine t_font 1 centre
+roomprop library t_lectern 2 centre
+roomprop crypt t_tomb 3 centre
+roomprop crypt t_urnbig 1 centre
+roomprop prison t_cage 2 centre

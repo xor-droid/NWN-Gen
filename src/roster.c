@@ -9,6 +9,7 @@
 
 const char *const ROLE_NAME[ROLE_N] = {"minion", "standard", "elite", "boss"};
 const char *const DECO_NAME[DECO_N] = {"prop", "light", "container"};
+const char *const RT_NAME[RT_N] = {"barracks", "storage", "shrine", "library", "crypt", "prison"};
 
 int roster_parse_cr(const char *s)
 {
@@ -106,6 +107,60 @@ int roster_parse(const char *text, size_t len, roster *ro, char *err)
                 if (!strcmp(ro->hench[i], rest))
                     return bad(err, line, "duplicate henchman prefix");
             strcpy(ro->hench[ro->nhench++], rest);
+        } else if (!strcmp(buf, "corridorprop")) {
+            size_t i;
+            char *end;
+            long v;
+            sp2 = strchr(rest, ' ');
+            if (!sp2)
+                return bad(err, line, "corridorprop needs 'resref weight'");
+            *sp2 = '\0';
+            if (!resref_ok(rest))
+                return bad(err, line, "resref must be 1-16 of a-z 0-9 _");
+            v = strtol(sp2 + 1, &end, 10);
+            if (end == sp2 + 1 || *end || v < 1 || v > 100)
+                return bad(err, line, "weight must be a whole number 1-100");
+            if (ro->ncprop == ROSTER_POOL)
+                return bad(err, line, "too many corridorprop entries");
+            for (i = 0; i < ro->ncprop; i++)
+                if (!strcmp(ro->cprop[i].resref, rest))
+                    return bad(err, line, "duplicate corridorprop entry");
+            strcpy(ro->cprop[ro->ncprop].resref, rest);
+            ro->cprop[ro->ncprop++].cr = (int)v;
+        } else if (!strcmp(buf, "roomprop")) {
+            int rt, centre = 0;
+            size_t i;
+            char *res, *end;
+            long v;
+            sp2 = strchr(rest, ' ');
+            if (!sp2)
+                return bad(err, line, "roomprop needs 'type resref weight'");
+            *sp2 = '\0';
+            for (rt = 0; rt < RT_N; rt++)
+                if (!strcmp(rest, RT_NAME[rt]))
+                    break;
+            if (rt == RT_N)
+                return bad(err, line, "roomprop type must be barracks, storage, shrine, library, crypt or prison");
+            res = sp2 + 1;
+            sp2 = strchr(res, ' ');
+            if (!sp2)
+                return bad(err, line, "roomprop needs 'type resref weight'");
+            *sp2 = '\0';
+            if (!resref_ok(res))
+                return bad(err, line, "resref must be 1-16 of a-z 0-9 _");
+            v = strtol(sp2 + 1, &end, 10);
+            if (end != sp2 + 1 && !strcmp(end, " centre"))
+                centre = 1, end += 7;
+            if (end == sp2 + 1 || *end || v < 1 || v > 100)
+                return bad(err, line, "weight must be a whole number 1-100, optionally followed by 'centre'");
+            if (ro->nrprop[rt] == ROSTER_POOL)
+                return bad(err, line, "too many roomprop entries for this type");
+            for (i = 0; i < ro->nrprop[rt]; i++)
+                if (!strcmp(ro->rprop[rt][i].resref, res))
+                    return bad(err, line, "duplicate roomprop entry");
+            strcpy(ro->rprop[rt][ro->nrprop[rt]].resref, res);
+            ro->rcentre[rt][ro->nrprop[rt]] = (unsigned char)centre;
+            ro->rprop[rt][ro->nrprop[rt]++].cr = (int)v;
         } else if (!strcmp(buf, "theme")) {
             size_t i;
             if (ro->ntheme == ROSTER_THEMES)

@@ -286,6 +286,42 @@ static int tile_safe(resman *rm, const char *model, const unsigned char *ok)
     return r;
 }
 
+/* Corridor prop spots of a straight kit tile at orientation o (vertical: the path runs north-south in the world frame). Spot k is
+ * 1.6 m off the centre line (side -1 for k < 3, +1 otherwise) and -2, 0 or +2 m along the path (k % 3 = 0, 1, 2). A spot counts when its
+ * point is walkable and the corridor is full width there (every metre from -2 to +2 across the path is walkable), so a prop never
+ * stands in a bulge or a narrowing. World offsets are turned back into the tile's own frame like dgcheck does (orientation is CCW). */
+static int kit_prop_mask(resman *rm, const set_tile *t, const unsigned char *ok, int o, int vertical)
+{
+    char wn[48];
+    uint8_t *b;
+    size_t l;
+    wok w;
+    int k, m = 0;
+    lower_model(t->model, wn, sizeof wn);
+    if (resman_get(rm, wn, WOK_TYPE, &b, &l, err) != 0) return 0;
+    if (wok_parse((const char *)b, &w, err) == 0) {
+        for (k = 0; k < 6; k++) {
+            const double side = k < 3 ? -1.6 : 1.6, lon = 2.0 * ((k % 3) - 1);
+            int full = 1, c;
+            double lat;
+            for (c = -2; c <= 2 && full; c++) {
+                double lx = vertical ? c : lon, ly = vertical ? lon : c;
+                double tx = o == 0 ? lx : o == 1 ? ly : o == 2 ? -lx : -ly, ty = o == 0 ? ly : o == 1 ? -lx : o == 2 ? -ly : lx;
+                full = wok_point_walkable(&w, ok, 512, tx, ty);
+            }
+            lat = side;
+            {
+                double lx = vertical ? lat : lon, ly = vertical ? lon : lat;
+                double tx = o == 0 ? lx : o == 1 ? ly : o == 2 ? -lx : -ly, ty = o == 0 ? ly : o == 1 ? -lx : o == 2 ? -ly : lx;
+                if (full && wok_point_walkable(&w, ok, 512, tx, ty)) m |= 1 << k;
+            }
+        }
+        wok_free(&w);
+    }
+    free(b);
+    return m;
+}
+
 /* rich: also admit decorative full-floor tiles (pillars, statues ...) whose walkmesh is proven safe, see SAFE_POINTS. */
 /* A corridor-kit tile is safe when the walkmesh joins the midpoint of each Corridor edge, the midpoint of any all-Floor edge
  * (the room side of a connector) and, for the door straight, the door slot. Checked at orientation 0, in the tile frame. */
@@ -492,8 +528,13 @@ static int cmd_tilepack(const char *root, const char *outpath, int rich, int kit
                         if (KIT[kt].door == 3) APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f 0\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0);
                         else if (t->dslot[0].type == 22) APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0);
                         else APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f %d\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0, t->dslot[0].type);
-                    } else
-                        APP("kit %s %s %ld %d %d\n", cs, es, n ? n : 1, (int)tid, o);
+                    } else {
+                        int pm = 0;
+                        if (KIT[kt].door == 0 && !strncmp(KIT[kt].model, "tdc01_g02_", 10) && ((es[0] == 'C' && es[2] == 'C' && es[1] == '-' && es[3] == '-') || (es[1] == 'C' && es[3] == 'C' && es[0] == '-' && es[2] == '-')))
+                            pm = kit_prop_mask(&rm, t, ok, o, es[0] == 'C');
+                        if (pm) APP("kit %s %s %ld %d %d props %d\n", cs, es, n ? n : 1, (int)tid, o, pm);
+                        else APP("kit %s %s %ld %d %d\n", cs, es, n ? n : 1, (int)tid, o);
+                    }
                     nk++;
                 }
             }
@@ -858,6 +899,27 @@ static int cmd_roster_check(const char *root, const char *path)
                 free(b);
             }
     }
+    for (i = 0; i < ro.ncprop; i++) { /* corridor scenery (corridorprop lines): inert like props */
+        const char *nm = ro.cprop[i].resref;
+        if (rc_load(&rm, nm, 2044, &g, &b, NULL) != 0) continue;
+        if (gff_get_int(g.root, "HasInventory", 0) || gff_get_int(g.root, "Useable", 0) || gff_get_int(g.root, "Locked", 0) || gff_get_int(g.root, "Plot", 0) || gff_get_int(g.root, "TrapFlag", 0))
+            RBAD("corridorprop %s is usable, holds items, or is locked, plot or trapped", nm);
+        rc_scripts(&rm, nm, g.root, "On");
+        n++;
+        gff_free(&g);
+        free(b);
+    }
+    for (t = 0; t < RT_N; t++) /* room furniture (roomprop lines): inert like props: not usable, no inventory, not locked, plot or trapped */
+        for (i = 0; i < ro.nrprop[t]; i++) {
+            const char *nm = ro.rprop[t][i].resref;
+            if (rc_load(&rm, nm, 2044, &g, &b, NULL) != 0) continue;
+            if (gff_get_int(g.root, "HasInventory", 0) || gff_get_int(g.root, "Useable", 0) || gff_get_int(g.root, "Locked", 0) || gff_get_int(g.root, "Plot", 0) || gff_get_int(g.root, "TrapFlag", 0))
+                RBAD("roomprop %s %s is usable, holds items, or is locked, plot or trapped", RT_NAME[t], nm);
+            rc_scripts(&rm, nm, g.root, "On");
+            n++;
+            gff_free(&g);
+            free(b);
+        }
     for (t = 0; t < ro.ntheme; t++) { /* loot: each item exists, is not plot or cursed, and is a single droppable stack; its value is printed for review */
         for (i = 0; i < ro.theme[t].nloot; i++) {
             const roster_loot *li = &ro.theme[t].loot[i];
@@ -1195,13 +1257,77 @@ static int cmd_door_report(const char *root)
     return 0;
 }
 
+/* ---------- bp-report: key fields of stock blueprints of one type, to pick safe resrefs for roster lines (read-only survey) ---------- */
+typedef struct { char (*nm)[17]; size_t n, cap; const char *prefix; } bp_list;
+
+static void bp_collect(const char *name, uint16_t type, void *ctx)
+{
+    bp_list *l = ctx;
+    (void)type;
+    if (l->prefix && strncmp(name, l->prefix, strlen(l->prefix))) return;
+    if (l->n == l->cap) {
+        l->cap = l->cap ? l->cap * 2 : 256;
+        l->nm = xrealloc(l->nm, l->cap * sizeof *l->nm);
+    }
+    snprintf(l->nm[l->n++], 17, "%s", name);
+}
+
+static int bp_cmp(const void *a, const void *b) { return strcmp((const char *)a, (const char *)b); }
+
+static int cmd_bp_report(const char *root, const char *ext, const char *prefix)
+{
+    resman rm;
+    bp_list l = {NULL, 0, 0, prefix};
+    int t = res_type_by_ext(ext);
+    size_t i;
+    if (t < 0 || (strcmp(ext, "utp") && strcmp(ext, "utc") && strcmp(ext, "utm") && strcmp(ext, "utt") && strcmp(ext, "uti"))) {
+        set_err(err, "bp-report handles utp, utc, utm, utt and uti");
+        return die(NULL);
+    }
+    if (resman_open(&rm, root, err) != 0) return die(NULL);
+    resman_each(&rm, (uint16_t)t, bp_collect, &l);
+    if (l.n) qsort(l.nm, l.n, sizeof *l.nm, bp_cmp);
+    for (i = 0; i < l.n; i++) {
+        gff g;
+        uint8_t *b;
+        size_t len;
+        char e2[ERRLEN];
+        const gff_struct *s;
+        if (resman_get(&rm, l.nm[i], (uint16_t)t, &b, &len, e2) != 0 || gff_parse(b, len, &g, e2) != 0) { printf("%-16s unreadable\n", l.nm[i]); continue; }
+        s = g.root;
+        if (!strcmp(ext, "utp"))
+            printf("%-16s app %3lld static %lld use %lld inv %lld lock %lld plot %lld trap %lld light %lld used '%s'\n", l.nm[i], (long long)gff_get_int(s, "Appearance", -1), (long long)gff_get_int(s, "Static", -1),
+                   (long long)gff_get_int(s, "Useable", -1), (long long)gff_get_int(s, "HasInventory", -1), (long long)gff_get_int(s, "Locked", -1), (long long)gff_get_int(s, "Plot", -1),
+                   (long long)gff_get_int(s, "TrapFlag", -1), (long long)gff_get_int(s, "LightState", -1), gff_get_string(s, "OnUsed") ? gff_get_string(s, "OnUsed") : "");
+        else if (!strcmp(ext, "utc"))
+            printf("%-16s race %3lld faction %3lld cr %5.2f spawn '%s' conv '%s' hench-ish tag '%s'\n", l.nm[i], (long long)gff_get_int(s, "Race", -1), (long long)gff_get_int(s, "FactionID", -1),
+                   gff_get_float(s, "ChallengeRating", -1), gff_get_string(s, "ScriptSpawn") ? gff_get_string(s, "ScriptSpawn") : "", gff_get_string(s, "Conversation") ? gff_get_string(s, "Conversation") : "",
+                   gff_get_string(s, "Tag") ? gff_get_string(s, "Tag") : "");
+        else if (!strcmp(ext, "utm"))
+            printf("%-16s markup %lld markdown %lld blackmarket %lld tag '%s'\n", l.nm[i], (long long)gff_get_int(s, "MarkUp", -1), (long long)gff_get_int(s, "MarkDown", -1), (long long)gff_get_int(s, "BlackMarket", -1),
+                   gff_get_string(s, "Tag") ? gff_get_string(s, "Tag") : "");
+        else if (!strcmp(ext, "utt"))
+            printf("%-16s type %lld trap %lld trapType %lld detect %lld disarm %lld oneshot %lld cursor %lld tag '%s'\n", l.nm[i], (long long)gff_get_int(s, "Type", -1), (long long)gff_get_int(s, "TrapFlag", -1),
+                   (long long)gff_get_int(s, "TrapType", -1), (long long)gff_get_int(s, "TrapDetectDC", -1), (long long)gff_get_int(s, "DisarmDC", -1), (long long)gff_get_int(s, "TrapOneShot", -1),
+                   (long long)gff_get_int(s, "Cursor", -1), gff_get_string(s, "Tag") ? gff_get_string(s, "Tag") : "");
+        else
+            printf("%-16s base %lld cost %lld plot %lld tag '%s'\n", l.nm[i], (long long)gff_get_int(s, "BaseItem", -1), (long long)gff_get_int(s, "Cost", 0), (long long)gff_get_int(s, "Plot", 0), gff_get_string(s, "Tag") ? gff_get_string(s, "Tag") : "");
+        gff_free(&g);
+        free(b);
+    }
+    printf("(%zu %s blueprint(s)%s%s)\n", l.n, ext, prefix ? " with prefix " : "", prefix ? prefix : "");
+    free(l.nm);
+    resman_close(&rm);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *root = getenv("NWN_ROOT");
     int a = 1;
     if (a + 1 < argc && !strcmp(argv[a], "--root")) { root = argv[a + 1]; a += 2; }
     if (!root || a >= argc) {
-        fputs("usage: nwnpack [--root INSTALL] check | tilepack OUT.txt | tilepack-rich OUT.txt | tilepack-kit OUT.txt | templates OUTDIR | ls EXT [PREFIX] | extract NAME EXT OUT | roster-check ROSTER.txt | tile-report | kit-report | door-report   (INSTALL defaults to $NWN_ROOT)\n", stderr);
+        fputs("usage: nwnpack [--root INSTALL] check | tilepack OUT.txt | tilepack-rich OUT.txt | tilepack-kit OUT.txt | templates OUTDIR | ls EXT [PREFIX] | extract NAME EXT OUT | roster-check ROSTER.txt | tile-report | kit-report | door-report | bp-report EXT [PREFIX]   (INSTALL defaults to $NWN_ROOT)\n", stderr);
         return 2;
     }
     if (!strcmp(argv[a], "check") && a + 1 == argc) return cmd_check(root);
@@ -1213,6 +1339,7 @@ int main(int argc, char **argv)
     if (!strcmp(argv[a], "extract") && a + 4 == argc) return cmd_extract(root, argv[a + 1], argv[a + 2], argv[a + 3]);
     if (!strcmp(argv[a], "kit-report") && a + 1 == argc) return cmd_kit_report(root);
     if (!strcmp(argv[a], "door-report") && a + 1 == argc) return cmd_door_report(root);
+    if (!strcmp(argv[a], "bp-report") && (a + 2 == argc || a + 3 == argc)) return cmd_bp_report(root, argv[a + 1], a + 3 == argc ? argv[a + 2] : NULL);
     if (!strcmp(argv[a], "tile-report") && a + 1 == argc) return cmd_tile_report(root);
     if (!strcmp(argv[a], "roster-check") && a + 2 == argc) return cmd_roster_check(root, argv[a + 1]);
     fputs("nwnpack: unknown command or arguments\n", stderr);

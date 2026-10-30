@@ -529,6 +529,32 @@ static void test_recipe(void)
         CHECK(RP(la) != 0 && strstr(err, "twice"));
         snprintf(la, sizeof la, "%sloot_amount low\n", GOOD_RECIPE);
         CHECK(RP(la) != 0 && strstr(err, "needs roster"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridors kit\ncorridor_dressing high\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.corridor_dressing == 3);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridors kit\ncorridor_dressing off\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.corridor_dressing == 0);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridor_dressing low\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "corridors kit"));
+        snprintf(la, sizeof la, "%scorridors kit\ncorridor_dressing low\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "needs roster"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridors kit\ncorridor_dressing lots\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "off, low, mid or high"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridors kit\ncorridor_dressing low\ncorridor_dressing high\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "twice"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ndressing high\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.dressing == 3);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ndressing mid\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.dressing == 2);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ndressing low\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.dressing == 1);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ndressing off\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.dressing == 0);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ndressing lots\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "off, low, mid or high"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ndressing low\ndressing high\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "twice"));
+        snprintf(la, sizeof la, "%sdressing low\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "needs roster"));
         snprintf(la, sizeof la, "%sdoors mixed\ntemplate_door d.git\ncorridors kit\n", GOOD_RECIPE);
         CHECK(RP(la) == 0 && r.doors == 2);
     }
@@ -749,7 +775,7 @@ static void test_kit_pack(void)
     size_t i;
     static const char *const bad[] = {"kit WWWW C-C- 0 101 0\n", "kit WWWW ---- 1 101 0\n", "kit WWWW C-C- 1 101 4\n", "kit WWWQ C-C- 1 101 0\n",
                                       "kit FWWF C-C- 1 101 0\n", "kit WWWW C-C- 1 101 0 door 1 2\n", "kit WWWW C-C- 1 101 0 junk\n",
-                                      "kit WWWW CxC- 1 101 0\n", "kit WWWW C-C 1 101 0\n", "kit WWWW C-C- 1 9999 0\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 -1\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 256\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 23 x\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 2.5\n", "kit WWWW C-C-\n"};
+                                      "kit WWWW CxC- 1 101 0\n", "kit WWWW C-C 1 101 0\n", "kit WWWW C-C- 1 9999 0\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 -1\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 256\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 23 x\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 2.5\n", "kit WWWW C-C-\n", "kit WWWW C-C- 1 101 0 props 0\n", "kit WWWW C-C- 1 101 0 props 64\n", "kit WWWW C-C- 1 101 0 props x\n", "kit WWWW C-C- 1 101 0 props 5 junk\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 props\n"};
     CHECK(t != NULL);
     if (!t)
         return;
@@ -770,6 +796,9 @@ static void test_kit_pack(void)
         strcpy(u + m, bad[i]);
         CHECK(tilepack_parse(u, strlen(u), &p, err) != 0);
     }
+    strcpy(u + m, "kit WWWW C-C- 1 101 0 props 63\nkit WWWW -C-C 1 102 1 props 5\nkit WWWW C-C- 1 103 0 door 0 0 0 0 23 props 9\nkit WWWW -C-C 1 104 0\n");
+    CHECK(tilepack_parse(u, strlen(u), &p, err) == 0 && p.nkit == 4 && p.kit[0].props == 63 && p.kit[1].props == 5 && p.kit[2].props == 9 && p.kit[2].app == 23 && p.kit[2].has_door && p.kit[3].props == 0);
+    tilepack_free(&p);
     CHECK(tilepack_parse(t, n, &p, err) == 0 && p.nkit == 0); /* a pack without kit lines is unchanged */
     tilepack_free(&p);
     free(u);
@@ -1921,6 +1950,229 @@ static void test_deco(void)
     free(dtext);
 }
 
+static int rprop_has(const roster *ro, const char *bp)
+{
+    int rt;
+    size_t i;
+    for (rt = 0; rt < RT_N; rt++)
+        for (i = 0; i < ro->nrprop[rt]; i++)
+            if (!strcmp(ro->rprop[rt][i].resref, bp))
+                return 1;
+    return 0;
+}
+
+static void test_roster_roomprop(void)
+{
+    size_t n;
+    char *text = slurp("tests/data/roster_dress_test.txt", &n), err[ERRLEN] = "";
+    roster ro;
+    char many[2048];
+    int i;
+
+    CHECK(text != NULL);
+    if (!text)
+        return;
+    CHECK(roster_parse(text, n, &ro, err) == 0);
+    CHECK(ro.nrprop[RT_BARRACKS] == 3 && ro.nrprop[RT_STORAGE] == 1 && ro.nrprop[RT_SHRINE] == 2 && ro.nrprop[RT_LIBRARY] == 3 && ro.nrprop[RT_CRYPT] == 3 && ro.nrprop[RT_PRISON] == 2);
+    CHECK(!strcmp(ro.rprop[RT_BARRACKS][0].resref, "t_bed") && ro.rprop[RT_BARRACKS][0].cr == 4 && !ro.rcentre[RT_BARRACKS][0]);
+    CHECK(!strcmp(ro.rprop[RT_BARRACKS][2].resref, "t_table") && ro.rprop[RT_BARRACKS][2].cr == 2 && ro.rcentre[RT_BARRACKS][2]);
+    free(text);
+#define RP_BAD(body, frag) do { char t_[512]; snprintf(t_, sizeof t_, "nwndgen-roster 1\n%s", body); CHECK(roster_parse(t_, strlen(t_), &ro, err) != 0 && strstr(err, frag)); } while (0)
+#define RP_GOOD(body) do { char t_[512]; snprintf(t_, sizeof t_, "nwndgen-roster 1\n%s", body); CHECK(roster_parse(t_, strlen(t_), &ro, err) == 0); } while (0)
+    RP_GOOD("vault v\nkey k\nrelic r\ntheme a A\nminion m 1\nboss b 1\nroomprop crypt p 1\n");
+    RP_GOOD("vault v\nkey k\nrelic r\nroomprop crypt p 100\nroomprop storage p 5\ntheme a A\nminion m 1\nboss b 1\n"); /* global, and the same resref under two types is allowed */
+    RP_BAD("roomprop crypt p\n", "type resref weight");
+    RP_BAD("roomprop crypt\n", "type resref weight");
+    RP_BAD("roomprop dungeon p 1\n", "roomprop type");
+    RP_BAD("roomprop crypt P 1\n", "resref");
+    RP_BAD("roomprop crypt p 0\n", "weight");
+    RP_BAD("roomprop crypt p 101\n", "weight");
+    RP_BAD("roomprop crypt p 1.5\n", "weight");
+    RP_BAD("roomprop crypt p 1 middle\n", "centre");
+    RP_BAD("roomprop crypt p centre\n", "weight");
+    RP_GOOD("vault v\nkey k\nrelic r\ntheme a A\nminion m 1\nboss b 1\nroomprop crypt p 7 centre\n");
+    RP_BAD("roomprop crypt p 1\nroomprop crypt p 2\n", "duplicate roomprop");
+    many[0] = '\0';
+    strcat(many, "nwndgen-roster 1\n");
+    for (i = 0; i < ROSTER_POOL + 1; i++)
+        snprintf(many + strlen(many), sizeof many - strlen(many), "roomprop crypt p%d 1\n", i);
+    CHECK(roster_parse(many, strlen(many), &ro, err) != 0 && strstr(err, "too many roomprop"));
+    RP_GOOD("vault v\nkey k\nrelic r\ncorridorprop c1 5\ncorridorprop c2 100\ntheme a A\nminion m 1\nboss b 1\n");
+    CHECK(ro.ncprop == 2 && !strcmp(ro.cprop[1].resref, "c2") && ro.cprop[1].cr == 100);
+    RP_BAD("corridorprop c\n", "resref weight");
+    RP_BAD("corridorprop C 1\n", "resref");
+    RP_BAD("corridorprop c 0\n", "weight");
+    RP_BAD("corridorprop c 101\n", "weight");
+    RP_BAD("corridorprop c 1\ncorridorprop c 2\n", "duplicate corridorprop");
+    many[0] = '\0';
+    strcat(many, "nwndgen-roster 1\n");
+    for (i = 0; i < ROSTER_POOL + 1; i++)
+        snprintf(many + strlen(many), sizeof many - strlen(many), "corridorprop p%d 1\n", i);
+    CHECK(roster_parse(many, strlen(many), &ro, err) != 0 && strstr(err, "too many corridorprop"));
+#undef RP_BAD
+#undef RP_GOOD
+}
+
+static void test_dressing(void)
+{
+    size_t n, rn, yn, dn, si, i, k, j, m;
+    char *tp_text = slurp("tests/data/tilepack_test.txt", &n), *rtext = slurp("tests/data/recipe_test.txt", &rn),
+         *dtext = slurp("tests/data/roster_dress_test.txt", &dn), *ytext = slurp("tests/data/roster_deco_test.txt", &yn);
+    tilepack tp;
+    recipe r;
+    roster ro, plain;
+    gff are, git, ifo;
+    char err[ERRLEN] = "";
+    static const uint64_t seeds[] = {0, 1, 12345, 777, UINT64_C(18446744073709551615)};
+    spawn_cfg sc = {0};
+    long extras[4] = {0, 0, 0, 0}, centres = 0, edges = 0;
+    int pair_seen = 0, types_seen[RT_N] = {0};
+
+    CHECK(tp_text && rtext && dtext && ytext);
+    if (!tp_text || !rtext || !dtext || !ytext)
+        return;
+    CHECK(tilepack_parse(tp_text, n, &tp, err) == 0 && recipe_parse(rtext, rn, "tests/data", &r, err) == 0);
+    CHECK(roster_parse(dtext, dn, &ro, err) == 0 && roster_parse(ytext, yn, &plain, err) == 0);
+    CHECK(fx_are(&are) == 0 && fx_git(&git) == 0 && fx_ifo(&ifo) == 0);
+    sc.party = 2; sc.min_level = 2; sc.max_level = 4;
+
+    for (si = 0; si < sizeof seeds / sizeof *seeds; si++) {
+        dungeon off, d[4], again;
+        int lv;
+        sc.ro = &ro; sc.dressing = 0;
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seeds[si], &sc, &off, err) == 0);
+        for (lv = 1; lv <= 3; lv++) {
+            sc.dressing = lv;
+            CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seeds[si], &sc, &d[lv], err) == 0);
+        }
+        sc.dressing = 3;
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, seeds[si], &sc, &again, err) == 0);
+        for (i = 0; i < off.n; i++)
+            for (k = 0; k < (size_t)off.area[i].lay.nrooms; k++)
+                CHECK(off.area[i].rtype[k] == 0);
+        for (lv = 1; lv <= 3; lv++)
+            for (i = 0; i < off.n; i++) {
+                const dungeon_area *a = &d[lv].area[i], *b = &off.area[i];
+                int perroom[RECIPE_ROOMS_MAX] = {0}, ncentre[RECIPE_ROOMS_MAX] = {0};
+                CHECK(a->nsp <= SPAWN_PT_MAX);
+                /* the plain run's markers that are not furniture keep their order and content; only generic props (the last
+                 * markers of the scenery plan) are thinned, so what remains is a prefix of the plain run */
+                {
+                    size_t ia = 0, ib = 0;
+                    for (ia = 0; ia < a->nsp; ia++) {
+                        if (strchr("D", a->sp[ia].kind) && rprop_has(&ro, a->sp[ia].bp))
+                            continue;
+                        CHECK(ib < b->nsp && !memcmp(&a->sp[ia], &b->sp[ib], sizeof a->sp[ia]));
+                        ib++;
+                    }
+                    for (; ib < b->nsp; ib++)
+                        CHECK(b->sp[ib].kind == 'D');
+                }
+                for (k = 0; k < (size_t)a->lay.nrooms; k++) {
+                    CHECK(a->rtype[k] >= 1 && a->rtype[k] <= RT_N);
+                    types_seen[a->rtype[k] - 1] = 1;
+                }
+                for (k = 0; k < a->nsp; k++) {
+                    const spawn_pt *p = &a->sp[k];
+                    int room = -1, rr, rt = a->rtype[0] - 1, okbp = 0, centre_piece = p->ox == 0 && p->oy == 0;
+                    if (p->kind != 'D' || !rprop_has(&ro, p->bp))
+                        continue;
+                    if (!centre_piece) { /* a corner (+-1,+-1) or the middle of a wall side (+-1,0), (0,+-1) whose neighbour tile is not floor */
+                        int edge_piece = !p->ox || !p->oy;
+                        CHECK(abs(p->ox) <= 1 && abs(p->oy) <= 1);
+                        if (edge_piece) {
+                            int nx = p->cx + p->ox, ny = p->cy + p->oy;
+                            CHECK(nx < 0 || ny < 0 || nx >= a->lay.w || ny >= a->lay.h || !layout_full_floor(&a->lay, nx, ny));
+                            edges++;
+                            CHECK(p->custom == 1 && p->xcm == 450 * p->ox && p->ycm == 450 * p->oy);
+                            /* faces into the room, away from its wall */
+                            CHECK(p->face == (p->ox > 0 ? 4 : p->ox < 0 ? 0 : p->oy > 0 ? 6 : 2));
+                        }
+                    }
+                    for (rr = 0; rr < a->lay.nrooms; rr++)
+                        if (p->cx >= a->lay.room[rr][0] && p->cx < a->lay.room[rr][2] && p->cy >= a->lay.room[rr][1] && p->cy < a->lay.room[rr][3])
+                            room = rr;
+                    CHECK(room >= 0);
+                    if (room >= 0) {
+                        size_t e;
+                        rt = a->rtype[room] - 1;
+                        for (e = 0; e < ro.nrprop[rt]; e++)
+                            okbp |= !strcmp(ro.rprop[rt][e].resref, p->bp) && ro.rcentre[rt][e] == (unsigned char)centre_piece;
+                        CHECK(okbp); /* furniture comes from the room's own type, centrepieces from its centre list */
+                        if (centre_piece) {
+                            CHECK(lv >= 2 && ncentre[room] == 0); /* at most one, not at low */
+                            ncentre[room]++;
+                        } else
+                            perroom[room]++;
+                    }
+                    extras[lv]++;
+                    centres += centre_piece;
+                    for (m = 0; m < k; m++) { /* never two pieces in one corner or on one centre tile */
+                        const spawn_pt *q = &a->sp[m];
+                        if (strchr("DLX", q->kind))
+                            CHECK(!(q->cx == p->cx && q->cy == p->cy && q->ox == p->ox && q->oy == p->oy));
+                        if (strchr("DLX", q->kind) && rprop_has(&ro, q->bp) && abs(q->cx - p->cx) + abs(q->cy - p->cy) == 1 && q->ox && p->ox && q->oy && p->oy && (q->ox == p->ox) != (q->oy == p->oy))
+                            pair_seen |= lv == 3;
+                    }
+                }
+                for (k = 0; k < (size_t)a->lay.nrooms; k++)
+                    CHECK(perroom[k] <= 2 * (lv == 1 ? 3 : lv == 2 ? 5 : 8)); /* 3, 5 or 8 pieces, each possibly a pair */
+                if (lv == 1) /* three pieces per room, never a pair */
+                    for (k = 0; k < (size_t)a->lay.nrooms; k++)
+                        CHECK(perroom[k] <= 3);
+                CHECK(deco_floor_connected(&a->lay, a)); /* centrepieces never cut the floor */
+            }
+        for (i = 0; i < again.n; i++) {
+            CHECK(again.area[i].nsp == d[3].area[i].nsp && !memcmp(again.area[i].sp, d[3].area[i].sp, d[3].area[i].nsp * sizeof(spawn_pt)));
+            CHECK(!memcmp(again.area[i].rtype, d[3].area[i].rtype, sizeof again.area[i].rtype));
+            CHECK(again.area[i].ngit == d[3].area[i].ngit && !memcmp(again.area[i].git, d[3].area[i].git, d[3].area[i].ngit));
+        }
+        for (j = 0; j < 1; j++) { /* layout and tiles never move */
+            char *x = dungeon_dump(&off, seeds[si]), *y = dungeon_dump(&d[3], seeds[si]);
+            CHECK(!strcmp(x, y));
+            free(x);
+            free(y);
+        }
+        dungeon_free(&off);
+        for (lv = 1; lv <= 3; lv++)
+            dungeon_free(&d[lv]);
+        dungeon_free(&again);
+    }
+    CHECK(extras[1] > 0 && extras[2] > extras[1] && extras[3] > extras[2]);
+    CHECK(pair_seen && centres > 0 && edges > 0);
+    for (i = 0; i < RT_N; i++)
+        CHECK(types_seen[i]);
+
+    /* a roster without roomprop lines is left alone, boss_only runs stay bare */
+    {
+        dungeon d0, d1;
+        sc.ro = &plain; sc.dressing = 0;
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, 12345, &sc, &d0, err) == 0);
+        sc.dressing = 3;
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, 12345, &sc, &d1, err) == 0);
+        for (i = 0; i < d0.n; i++) {
+            CHECK(d0.area[i].nsp == d1.area[i].nsp && !memcmp(d0.area[i].sp, d1.area[i].sp, d0.area[i].nsp * sizeof(spawn_pt)));
+            for (k = 0; k < RECIPE_ROOMS_MAX; k++)
+                CHECK(d1.area[i].rtype[k] == 0);
+        }
+        dungeon_free(&d0);
+        dungeon_free(&d1);
+        sc.ro = &ro; sc.boss_only = 1;
+        CHECK(dungeon_build_ex(&r, &tp, &are, &git, &ifo, 12345, &sc, &d1, err) == 0);
+        for (i = 0; i < d1.n; i++)
+            CHECK(d1.area[i].nsp == (i == 0 ? 4u : 0u));
+        dungeon_free(&d1);
+    }
+    tilepack_free(&tp);
+    gff_free(&are);
+    gff_free(&git);
+    gff_free(&ifo);
+    free(tp_text);
+    free(rtext);
+    free(dtext);
+    free(ytext);
+}
+
 /* ---------- tileset / walkmesh / 2DA ---------- */
 
 static const char SET_TEXT[] =
@@ -2141,6 +2393,8 @@ int main(void)
     test_loot_amount();
     test_spawn();
     test_deco();
+    test_roster_roomprop();
+    test_dressing();
     test_tileset();
     test_resman();
     printf("%d checks, %d failures\n", checks, fails);

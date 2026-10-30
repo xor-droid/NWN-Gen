@@ -304,6 +304,8 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.loot_test = c->r.loot_test;
         sc.henchmen = c->r.henchmen;
         sc.loot_amount = c->r.loot_amount;
+        sc.dressing = c->r.dressing;
+        sc.corridor_dressing = c->r.corridor_dressing;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -604,6 +606,24 @@ int main(int argc, char **argv)
                         nx += kd == 'X';
                     }
                     append(&manifest, &mlen, &mcap, "scenery.%s=decor %d light %d container %d\n", c->d.area[s].resref, nd, nl, nx);
+                }
+                if (c->r.dressing) {
+                    append(&manifest, &mlen, &mcap, "dressing=%s\n", c->r.dressing == 1 ? "low" : c->r.dressing == 2 ? "mid" : "high");
+                    append(&manifest, &mlen, &mcap, "dressing_algorithm=%s\n", DRESSING_ALGORITHM_VERSION);
+                    for (s = 0; s < c->d.n; s++) {
+                        int rr;
+                        append(&manifest, &mlen, &mcap, "rooms.%s=", c->d.area[s].resref);
+                        for (rr = 0; rr < c->d.area[s].lay.nrooms; rr++)
+                            append(&manifest, &mlen, &mcap, "%s%s", rr ? "," : "", c->d.area[s].rtype[rr] ? RT_NAME[c->d.area[s].rtype[rr] - 1] : "plain");
+                        append(&manifest, &mlen, &mcap, "\n");
+                    }
+                }
+                if (c->r.corridor_dressing) {
+                    append(&manifest, &mlen, &mcap, "corridor_dressing=%s\n", c->r.corridor_dressing == 1 ? "low" : c->r.corridor_dressing == 2 ? "mid" : "high");
+                    append(&manifest, &mlen, &mcap, "corridor_algorithm=%s\n", CORRIDOR_ALGORITHM_VERSION);
+                    for (s = 0; s < c->d.n; s++) {
+                        append(&manifest, &mlen, &mcap, "corridor_props.%s=%d\n", c->d.area[s].resref, spawn_corridor_props(&c->d.area[s]));
+                    }
                 }
                 if (c->ro.theme[c->d.theme].nloot || c->ro.theme[c->d.theme].gold_per_cr) {
                     append(&manifest, &mlen, &mcap, "loot_algorithm=%s\n", LOOT_ALGORITHM_VERSION);

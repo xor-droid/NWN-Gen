@@ -181,6 +181,8 @@ static char *kit_pack_text(void)
             else if (k_app(k) != 22)
                 len += (size_t)snprintf(t + len, cap - len, " %d", k_app(k));
         }
+        if (!k->door && k->tid >= 200 && k->tid <= 203) /* straights: prop spots, all six on the first two, fewer on the others */
+            len += (size_t)snprintf(t + len, cap - len, " props %d", k->tid <= 201 ? 63 : k->tid == 202 ? 27 : 54);
         len += (size_t)snprintf(t + len, cap - len, "\n");
     }
     for (i = 0; i < NKITREC; i++)

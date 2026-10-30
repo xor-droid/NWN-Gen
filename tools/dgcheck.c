@@ -62,6 +62,14 @@ static int on_floor(const area_info *a, double x, double y)
     return a->floor[cy * a->w + cx];
 }
 
+/* A kit corridor cell: walkable (hub bit) but not a full-floor tile. Decor may stand there (recipe key corridor_dressing). */
+static int on_corridor(const area_info *a, double x, double y)
+{
+    int cx = (int)(x / 10.0), cy = (int)(y / 10.0);
+    if (x < 0 || y < 0 || cx >= a->w || cy >= a->h || !a->open) return 0;
+    return !a->floor[cy * a->w + cx] && (a->open[cy * a->w + cx] & 16);
+}
+
 static int in_poly(const gff_struct *trig, double x, double y)
 {
     const gff_field *g = gff_find(trig, "Geometry");
@@ -483,7 +491,13 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
                 BAD("%s: marker at (%d,%d) is next to trigger %s", ai[p->area].name, p->cx, p->cy, gff_get_string(tl->list[q], "Tag"));
         if (p->area == 0 && cheb(p->cx, p->cy, (int)(gff_get_float(ifo->root, "Mod_Entry_X", -1) / 10.0), (int)(gff_get_float(ifo->root, "Mod_Entry_Y", -1) / 10.0)) < (nweak ? 1 : 2))
             BAD("marker at (%d,%d) is next to the module entry", p->cx, p->cy);
-        if (!on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0)) BAD("%s: marker at (%d,%d) is not on a floor cell", ai[p->area].name, p->cx, p->cy);
+        if (!on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0) && !(p->kind == 'D' && on_corridor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0))) BAD("%s: marker at (%d,%d) is not on a floor cell", ai[p->area].name, p->cx, p->cy);
+        if (p->kind == 'D' && on_corridor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0)) { /* corridor props: a straight corridor cell, against a wall (1.6 m off the centre line), 0 or 2 m along it */
+            int sides = ai[p->area].open[p->cy * ai[p->area].w + p->cx] & 15, vert = sides == 5;
+            double lat = vert ? p->ox : p->oy, lon = vert ? p->oy : p->ox;
+            if (sides != 5 && sides != 10) BAD("%s: corridor prop %s at (%d,%d) is not on a straight corridor cell", ai[p->area].name, p->bp, p->cx, p->cy);
+            else if (absd(absd(lat) - 1.6) > 0.02 || (absd(lon) > 0.02 && absd(absd(lon) - 2.0) > 0.02)) BAD("%s: corridor prop %s at (%d,%d) is off its spot (offset %.2f, %.2f)", ai[p->area].name, p->bp, p->cx, p->cy, p->ox, p->oy);
+        }
     }
 
     /* scenery must not cut the floor: with every centre-slot D/L/X tile removed the walkable area has no more regions than before
@@ -520,6 +534,12 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
             size_t e;
             if (kd < 0) continue;
             for (e = 0; e < ro->theme[theme].ndeco[kd]; e++) f |= !strcmp(ro->theme[theme].deco[kd][e].resref, mk[i].bp);
+            if (kd == DECO_PROP) { /* furniture from a roomprop line (recipe key dressing) is a decor prop too */
+                int rt;
+                for (rt = 0; rt < RT_N; rt++)
+                    for (e = 0; e < ro->nrprop[rt]; e++) f |= !strcmp(ro->rprop[rt][e].resref, mk[i].bp);
+                for (e = 0; e < ro->ncprop; e++) f |= !strcmp(ro->cprop[e].resref, mk[i].bp);
+            }
             if (!f) BAD("%s: %s %s is not in the %s list of theme '%s'", ai[mk[i].area].name, DECO_NAME[kd], mk[i].bp, DECO_NAME[kd], ro->theme[theme].id);
         }
         /* loot: only creature and boss markers carry it, only from the theme's list and CR range; gold only if the theme gives gold */
@@ -791,7 +811,10 @@ int main(int argc, char **argv)
         for (q = 0; wl && q < wl->nlist; q++) {
             double x = gff_get_float(wl->list[q], "XPosition", -1), y = gff_get_float(wl->list[q], "YPosition", -1);
             size_t t2;
-            if (!on_floor(a, x, y)) BAD("%s: waypoint %s is not on a floor cell", a->name, gff_get_string(wl->list[q], "Tag"));
+            {
+                const char *wt = gff_get_string(wl->list[q], "Tag");
+                if (!on_floor(a, x, y) && !(wt && !strncmp(wt, "SPD_", 4) && on_corridor(a, x, y))) BAD("%s: waypoint %s is not on a floor cell", a->name, wt);
+            }
             for (t2 = 0; trl && t2 < trl->nlist; t2++)
                 if (in_poly(trl->list[t2], x, y)) BAD("%s: waypoint %s lies inside trigger %s", a->name, gff_get_string(wl->list[q], "Tag"), gff_get_string(trl->list[t2], "Tag"));
         }

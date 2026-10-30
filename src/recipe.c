@@ -74,7 +74,7 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     size_t pos = 0;
     int line = 0, seen_head = 0;
     unsigned have = 0; /* bitmask of single-use keys */
-    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144 };
+    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144, H_DRESS = 524288, H_CDRESS = 1048576 };
 
     memset(r, 0, sizeof *r);
     while (pos < len) {
@@ -143,6 +143,20 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             if (!strcmp(rest, "low")) r->loot_amount = 1;
             else if (!strcmp(rest, "high")) r->loot_amount = 2;
             else if (strcmp(rest, "mid")) { set_err(err, "recipe line %d: loot_amount must be low, mid or high", line); return -1; }
+        } else if (!strcmp(buf, "dressing")) {
+            if (have & H_DRESS) { set_err(err, "recipe line %d: 'dressing' given twice", line); return -1; }
+            have |= H_DRESS;
+            if (!strcmp(rest, "low")) r->dressing = 1;
+            else if (!strcmp(rest, "mid")) r->dressing = 2;
+            else if (!strcmp(rest, "high")) r->dressing = 3;
+            else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: dressing must be off, low, mid or high", line); return -1; }
+        } else if (!strcmp(buf, "corridor_dressing")) {
+            if (have & H_CDRESS) { set_err(err, "recipe line %d: 'corridor_dressing' given twice", line); return -1; }
+            have |= H_CDRESS;
+            if (!strcmp(rest, "low")) r->corridor_dressing = 1;
+            else if (!strcmp(rest, "mid")) r->corridor_dressing = 2;
+            else if (!strcmp(rest, "high")) r->corridor_dressing = 3;
+            else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: corridor_dressing must be off, low, mid or high", line); return -1; }
         } else if (!strcmp(buf, "henchmen")) {
             char *end;
             long v;
@@ -280,6 +294,14 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     }
     if (r->henchmen && !(have & H_ROSTER)) {
         set_err(err, "recipe: henchmen needs roster and scripts");
+        return -1;
+    }
+    if (r->corridor_dressing && (!(have & H_ROSTER) || !r->kit_corridors)) {
+        set_err(err, "recipe: corridor_dressing needs roster and scripts, and corridors kit");
+        return -1;
+    }
+    if ((have & H_DRESS) && !(have & H_ROSTER)) {
+        set_err(err, "recipe: dressing needs roster and scripts");
         return -1;
     }
     if ((have & H_LOOTAMT) && !(have & H_ROSTER)) {

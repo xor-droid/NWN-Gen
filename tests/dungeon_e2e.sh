@@ -300,6 +300,41 @@ for seed in 1 2 3 12345; do
   "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_deco.txt" --seed $seed --output "$T/k/d$seed.mod" >/dev/null || { bad "kit scenery generate seed $seed"; continue; }
   dgk --roster "$FX/roster_deco_test.txt" "$T/k/d$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck kit scenery seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
 done
+# corridor_dressing off|low|mid|high: props along the straight kit corridors
+cp "$HERE/data/roster_corr_test.txt" "$HERE/data/roster_dress_test.txt" "$FX/"
+{ cat "$FX/recipe_kit.txt"; echo "roster roster_corr_test.txt"; echo "scripts scripts"; } > "$FX/recipe_kit_corr.txt"
+mkdir -p "$T/cd"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed 12345 --output "$T/cd/off.mod" --manifest "$T/cd/off.txt" >/dev/null || bad "corridor_dressing baseline generate"
+! grep -q 'corridor_' "$T/cd/off.txt" && ok || bad "corridor_dressing appears in the manifest without the recipe key"
+cprops=0; cmod=
+for lvl in low mid high; do
+  { cat "$FX/recipe_kit_corr.txt"; echo "corridor_dressing $lvl"; } > "$FX/recipe_kit_corr_$lvl.txt"
+  for seed in 1 2 3 4 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr_$lvl.txt" --seed $seed --output "$T/cd/${lvl}_$seed.mod" --manifest "$T/cd/${lvl}_$seed.txt" >"$T/cd/${lvl}_$seed.out" || { bad "corridor_dressing $lvl generate seed $seed"; continue; }
+    grep -q "^corridor_dressing=$lvl\$" "$T/cd/${lvl}_$seed.txt" && grep -q '^corridor_algorithm=corridor/1$' "$T/cd/${lvl}_$seed.txt" && grep -q '^corridor_props\.[a-z_0-9]*=[0-9]*$' "$T/cd/${lvl}_$seed.txt" && ok || bad "corridor_dressing $lvl manifest seed $seed"
+    grep -q 'corridor props (corridor_dressing '"$lvl"')' "$T/cd/${lvl}_$seed.out" && ok || bad "corridor_dressing $lvl summary seed $seed"
+    dgk --roster "$FX/roster_corr_test.txt" "$T/cd/${lvl}_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck corridor_dressing $lvl seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+    n=$(sed -n 's/^corridor_props\.[a-z_0-9]*=//p' "$T/cd/${lvl}_$seed.txt" | paste -sd+ | bc 2>/dev/null || echo 0); cprops=$((cprops + ${n:-0})); [ "${n:-0}" -gt 0 ] && cmod="$T/cd/${lvl}_$seed.mod"
+  done
+done
+[ "$cprops" -gt 0 ] && ok || bad "corridor_dressing placed no props over 15 modules"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr_high.txt" --seed 12345 --output "$T/cd/again.mod" >/dev/null && cmp -s "$T/cd/again.mod" "$T/cd/high_12345.mod" && ok || bad "corridor_dressing build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "corridor_dressing off"; } > "$FX/recipe_kit_corr_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr_off.txt" --seed 12345 --output "$T/cd/offkey.mod" >/dev/null && cmp -s "$T/cd/offkey.mod" "$T/cd/off.mod" && ok || bad "corridor_dressing off differs from leaving the key out"
+# a pack without prop spots (made before this feature) still builds, with no corridor props
+sed 's/ props [0-9]*$//' "$FX/tilepack_kit.txt" > "$FX/tilepack_kit_noprops.txt"
+sed 's/^tilepack tilepack_kit.txt/tilepack tilepack_kit_noprops.txt/' "$FX/recipe_kit_corr_high.txt" > "$FX/recipe_kit_corr_nopack.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr_nopack.txt" --seed 12345 --output "$T/cd/nopack.mod" --manifest "$T/cd/nopack.txt" >/dev/null && grep -q '^corridor_props\.[a-z_0-9]*=0$' "$T/cd/nopack.txt" && ! grep -q '^corridor_props\.[a-z_0-9]*=[1-9]' "$T/cd/nopack.txt" && ok || bad "old pack: corridor_dressing should place nothing"
+# negative proof: against a roster without those corridor props dgcheck must object
+[ -n "$cmod" ] && { dgk --roster "$FX/roster_dress_test.txt" "$cmod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted corridor props outside the roster" || { grep -q "is not in the prop list" "$T/dg.txt" && ok || bad "dgcheck corridor prop message: $(head -3 "$T/dg.txt")"; }; }
+{ cat "$FX/recipe_test.txt"; echo "roster roster_corr_test.txt"; echo "scripts scripts"; echo "corridor_dressing high"; } > "$FX/r_cnokit.txt"
+badruns "corridor_dressing without corridors kit" --recipe "$FX/r_cnokit.txt"
+{ cat "$FX/recipe_kit.txt"; echo "corridor_dressing high"; } > "$FX/r_cnoroster.txt"
+badruns "corridor_dressing without roster" --recipe "$FX/r_cnoroster.txt"
+{ cat "$FX/recipe_kit_corr_high.txt"; echo "corridor_dressing low"; } > "$FX/r_cdup.txt"
+badruns "corridor_dressing given twice" --recipe "$FX/r_cdup.txt"
+{ cat "$FX/recipe_kit_corr.txt"; echo "corridor_dressing lots"; } > "$FX/r_cbad.txt"
+badruns "corridor_dressing lots" --recipe "$FX/r_cbad.txt"
 # negative proofs: the validator re-reads the tileset, so a lie about edges, door slots or doors must show
 KSET=tileset_kit_edge.set; sed 's/^Top=Corridor/Top=Bridge/' "$FX/tileset_kit.set" > "$FX/$KSET"
 checkfail "dgcheck rejects wrong corridor edges" dgk "$T/k/k1.mod"
@@ -405,6 +440,34 @@ grep -q 'loot amount high' "$T/l/la_high.out" && ok || bad "summary does not men
 badruns "loot_amount without roster" --recipe "$FX/r_laoroster.txt"
 { cat "$FX/recipe_loot.txt"; echo "loot_amount lots"; } > "$FX/r_labad.txt"
 badruns "loot_amount lots" --recipe "$FX/r_labad.txt"
+
+# --- dressing off|low|mid|high: rooms get a type and furniture from the roster's roomprop lines -------
+cp "$HERE/data/roster_dress_test.txt" "$FX/"
+{ cat "$FX/recipe_test.txt"; echo "roster roster_dress_test.txt"; echo "scripts scripts"; } > "$FX/recipe_dress_base.txt"
+mkdir -p "$T/dr"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_dress_base.txt" --seed 12345 --output "$T/dr/off.mod" --manifest "$T/dr/off.txt" >/dev/null || bad "dressing baseline generate"
+! grep -q 'dressing' "$T/dr/off.txt" && ok || bad "dressing appears in the manifest without the recipe key"
+for lvl in low mid high; do
+  { cat "$FX/recipe_dress_base.txt"; echo "dressing $lvl"; } > "$FX/recipe_dress_$lvl.txt"
+  for seed in 1 2 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_dress_$lvl.txt" --seed $seed --output "$T/dr/${lvl}_$seed.mod" --manifest "$T/dr/${lvl}_$seed.txt" >"$T/dr/${lvl}_$seed.out" || { bad "dressing $lvl generate seed $seed"; continue; }
+    grep -q "^dressing=$lvl\$" "$T/dr/${lvl}_$seed.txt" && grep -q '^dressing_algorithm=rooms/1$' "$T/dr/${lvl}_$seed.txt" && grep -q '^rooms\.[a-z_0-9]*=[a-z,]*$' "$T/dr/${lvl}_$seed.txt" && ok || bad "dressing $lvl manifest seed $seed"
+    grep -q 'room types (dressing '"$lvl"')' "$T/dr/${lvl}_$seed.out" && ok || bad "dressing $lvl summary seed $seed"
+    "$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_dress_test.txt" "$T/dr/${lvl}_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck dressing $lvl seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+  done
+done
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_dress_high.txt" --seed 12345 --output "$T/dr/again.mod" >/dev/null && cmp -s "$T/dr/again.mod" "$T/dr/high_12345.mod" && ok || bad "dressing build is not reproducible"
+checkfail "dressing high differs from the plain module" cmp -s "$T/dr/high_12345.mod" "$T/dr/off.mod"
+{ cat "$FX/recipe_dress_base.txt"; echo "dressing off"; } > "$FX/recipe_dress_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_dress_off.txt" --seed 12345 --output "$T/dr/offkey.mod" >/dev/null && cmp -s "$T/dr/offkey.mod" "$T/dr/off.mod" && ok || bad "dressing off differs from leaving the key out"
+# negative proof: checked against a roster without those furniture lines, dgcheck must object
+"$BUILD/dgcheck" --set "$FX/tileset.set" --tileset tsttest --roster "$FX/roster_deco_test.txt" "$T/dr/high_12345.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted furniture outside the roster" || { grep -q 'is not in the prop list' "$T/dg.txt" && ok || bad "dgcheck furniture message"; }
+{ cat "$FX/recipe_test.txt"; echo "dressing high"; } > "$FX/r_dnoroster.txt"
+badruns "dressing without roster" --recipe "$FX/r_dnoroster.txt"
+{ cat "$FX/recipe_dress_high.txt"; echo "dressing low"; } > "$FX/r_ddup.txt"
+badruns "dressing given twice" --recipe "$FX/r_ddup.txt"
+{ cat "$FX/recipe_dress_base.txt"; echo "dressing lots"; } > "$FX/r_dbad.txt"
+badruns "dressing lots" --recipe "$FX/r_dbad.txt"
 
 # --- henchmen: the first player gets stock henchmen from the roster's families -----------------------
 cp "$HERE/data/roster_hench_test.txt" "$FX/"

@@ -44,6 +44,12 @@ henchmen 2
 # Optional: how much creatures carry, low, mid (default) or high.
 loot_amount mid
 
+# Optional: furnish rooms by type from the roster's roomprop lines, off (default), low, mid or high.
+dressing off
+
+# Optional: props along the stock kit corridors (needs corridors kit and a pack from the current nwnpack tilepack-kit), off (default), low, mid or high.
+corridor_dressing off
+
 # Optional run defaults. The command-line options of the same name override them.
 seed 12345
 party_size 1
