@@ -146,6 +146,18 @@ changed. `plain` still uses type 22 only and its output bytes do not change when
 (LOOK defaults to 22; `nwnpack tilepack-kit` adds the type-23 records, borrowing g07_01's lighting). The summary prints `Door looks:` and the manifest `door_looks=22:n,23:m`.
 Confirmed in game by the author: the type-23 door looks right and works.
 
+`doors doorway` puts a door in the entrance of every corridor, in one of several looks, using the stock "Doorway" tile kit. A corridor has a room-wall connector cell at each
+end and the first corridor cell behind it; for each end the pack swaps the plain connector `c13` for `a13_01` (a room wall with a Doorway edge) and the cell behind it for a
+tile with one Doorway and one Corridor edge (`g16_01`, a straight, or `f18_01`, an elbow). Stock areas put exactly one generic door on the seam between the two tiles
+(162 of the 199 Doorway seams in the stock modules have one door, none has two); the generator does the same, at the seam midpoint, 0.2 m up. The look is one of seven stock
+generic doors picked per door from the seed in its own RNG domain (`nwndgen/doorway/1`): wood, portcullis, rusted, metal, evil stone, stone and jeweled (`GenericType_New`
+0, 2, 4, 5, 6, 7, 8 of `genericdoors.2da`; `Appearance` stays 0). The portcullis is see-through. Each door is a clone of a clean stock door (unlocked, not plot, untrapped,
+no scripts) with its position and tag changed and `Locked`, `Plot` and `AnimationState` reset. The elbow tile `f19_01` fails the walkmesh rule, so a corridor whose first cell is
+an elbow of that handedness keeps its plain connector at that end and gets no door there. There are no doors in the middle of the corridor in this mode.
+It needs `corridors kit` and a `template_door` made by the current `nwnpack templates` (the file now holds one donor per look after the corridor door; an old file is refused with a
+message), and a pack from the current `nwnpack tilepack-kit` (an old pack builds fine, it simply has no doorway doors). `plain`, `mixed` and `none` output does not change when the
+pack holds the Doorway records. The summary prints `Door looks:` by name and the manifest `door_looks=generic4:2,...`. Confirmed in game by the author: the doorway doors work.
+
 ### Creatures and an objective (optional: `roster` + `scripts`)
 
 Add two lines to the recipe and the dungeon gets monsters and a goal:

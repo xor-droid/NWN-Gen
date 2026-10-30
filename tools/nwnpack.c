@@ -304,7 +304,7 @@ static int kit_tile_safe(resman *rm, const set_tile *t, const unsigned char *ok,
     for (k = 0; k < 4; k++) {
         const int c1 = k == E_N ? C_NW : k == E_E ? C_NE : k == E_S ? C_SW : C_NW, c2 = k == E_N ? C_NE : k == E_E ? C_SE : k == E_S ? C_SE : C_SW;
         int floor_edge = !strcmp(sg.corner[c1], "Floor") && !strcmp(sg.corner[c2], "Floor");
-        if (!strcmp(sg.edge[k], "Corridor") || floor_edge) { pts[np][0] = DIR[k][0]; pts[np++][1] = DIR[k][1]; }
+        if (!strcmp(sg.edge[k], "Corridor") || !strcmp(sg.edge[k], "Doorway") || floor_edge) { pts[np][0] = DIR[k][0]; pts[np++][1] = DIR[k][1]; }
     }
     if (door) { pts[np][0] = t->dslot[0].x; pts[np++][1] = t->dslot[0].y; }
     lower_model(t->model, wn, sizeof wn);
@@ -438,11 +438,14 @@ static int cmd_tilepack(const char *root, const char *outpath, int rich, int kit
             /* Corridor kit: stock-placed straight/elbow corridor pieces, the room-wall connector and the door straight.
              * Each record is one (tile, orientation) with its EFFECTIVE corners and edges, so the generator needs no
              * rotation maths; door slots are rotated here as well. */
-            static const struct { const char *model; int door; } KIT[9] = {
+            static const struct { const char *model; int door; } KIT[13] = {
                 {"tdc01_g01_01", 0}, {"tdc01_g01_02", 0}, {"tdc01_g01_03", 0}, {"tdc01_g02_01", 0}, {"tdc01_g02_02", 0}, {"tdc01_g02_03", 0},
-                {"tdc01_c13_01", 0}, {"tdc01_g07_01", 1}, {"tdc01_g07_02", 2}};
+                {"tdc01_c13_01", 0}, {"tdc01_g07_01", 1}, {"tdc01_g07_02", 2},
+                /* doorway kit (door 3 = a room-wall tile with a Doorway edge and the door record, door 4 = the first corridor cell behind it with one
+                 * Doorway and one Corridor edge): the door stands on the seam, stock places exactly one there. Slot type 0 = a generic door. */
+                {"tdc01_a13_01", 3}, {"tdc01_g16_01", 4}, {"tdc01_f18_01", 4}, {"tdc01_f19_01", 4}};
             size_t kt, nk = 0;
-            for (kt = 0; kt < 9; kt++) {
+            for (kt = 0; kt < 13; kt++) {
                 size_t tid;
                 long placed = 0;
                 int o;
@@ -456,32 +459,38 @@ static int cmd_tilepack(const char *root, const char *outpath, int rich, int kit
                 if (!placed && KIT[kt].door != 2) { fprintf(stderr, "kit: %s is never placed by stock areas, skipped\n", KIT[kt].model); continue; }
                 /* door 2 = tdc01_g07_02: the second corridor door look (door type 23). Stock never places it, so its orientations are
                  * not proven by stock use; it has the same edges, walkmesh and slot shape as g07_01, only a different door type and slot height. */
-                if (!kit_tile_safe(&rm, t, ok, KIT[kt].door != 0)) { fprintf(stderr, "kit: %s fails the walkmesh rule, skipped\n", KIT[kt].model); continue; }
+                if (!kit_tile_safe(&rm, t, ok, KIT[kt].door == 1 || KIT[kt].door == 2)) { fprintf(stderr, "kit: %s fails the walkmesh rule, skipped\n", KIT[kt].model); continue; }
                 for (o = 0; o < 4; o++) {
                     tile_sig_t sg;
                     char cs[5], es[5];
-                    int k, bad = 0, nce = 0;
+                    int k, bad = 0, nce = 0, nde = 0;
                     long n = 0;
                     tile_sig(t, o, 1, &sg);
                     for (k = 0; k < 4; k++) {
                         cs[k] = !strcmp(sg.corner[k], "Floor") ? 'F' : !strcmp(sg.corner[k], "Wall") ? 'W' : 'P';
                         bad |= cs[k] == 'P' || sg.cheight[k] != 0;
-                        if (sg.edge[k][0]) { if (strcmp(sg.edge[k], "Corridor")) bad = 1; else nce++; }
-                        es[k] = sg.edge[k][0] ? 'C' : '-';
+                        if (sg.edge[k][0]) {
+                            if (!strcmp(sg.edge[k], "Corridor")) nce++;
+                            else if (!strcmp(sg.edge[k], "Doorway") && KIT[kt].door >= 3) nde++;
+                            else bad = 1;
+                        }
+                        es[k] = !sg.edge[k][0] ? '-' : !strcmp(sg.edge[k], "Corridor") ? 'C' : 'D';
                     }
                     cs[4] = es[4] = 0;
-                    if (bad || !nce) continue;
+                    if (KIT[kt].door == 3 ? (nce != 0 || nde != 1) : KIT[kt].door == 4 ? (nce != 1 || nde != 1) : nde != 0) bad = 1;
+                    if (bad || !(nce + nde)) continue;
                     for (i = 0; i < nuse; i++) if (use[i].tid == (int)tid && use[i].o == o) n++;
-                    if (KIT[kt].door) {
+                    if (KIT[kt].door >= 1 && KIT[kt].door <= 3) {
                         double x = t->dslot[0].x, y = t->dslot[0].y, z = t->dslot[0].z, br = t->dslot[0].orient + 90.0 * o;
                         int r;
-                        if (t->ndslot != 1 || (t->dslot[0].type != 22 && t->dslot[0].type != 23)) continue;
+                        if (t->ndslot != 1 || (KIT[kt].door == 3 ? t->dslot[0].type != 0 : (t->dslot[0].type != 22 && t->dslot[0].type != 23))) continue;
                         for (r = 0; r < o; r++) { double nx = -y; y = x; x = nx; }
                         while (br > 180.0) br -= 360.0;
                         if (x == 0) x = 0;
                         if (y == 0) y = 0;
                         if (z == 0) z = 0;
-                        if (t->dslot[0].type == 22) APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0);
+                        if (KIT[kt].door == 3) APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f 0\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0);
+                        else if (t->dslot[0].type == 22) APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0);
                         else APP("kit %s %s %ld %d %d door %.2f %.2f %.2f %.4f %d\n", cs, es, n ? n : 1, (int)tid, o, x, y, z, br * 3.14159265358979 / 180.0, t->dslot[0].type);
                     } else
                         APP("kit %s %s %ld %d %d\n", cs, es, n ? n : 1, (int)tid, o);
@@ -616,6 +625,41 @@ static int cmd_templates(const char *root, const char *outdir)
         dgit.root = gff_struct_new(0xFFFFFFFFu);
         if (!gff_set_list(dgit.root, "Door List", err)) return die(NULL);
         gff_list_append(gff_find(dgit.root, "Door List"), door);
+        {   /* generic-door looks for the doorway kit: one clean stock instance per GenericType_New, appended after the corridor door so list[0] stays */
+            static const int LOOKS[7] = {0, 2, 4, 5, 6, 7, 8};
+            static const char *const ON[] = {"OnClosed", "OnDamaged", "OnDeath", "OnDisarm", "OnHeartbeat", "OnLock", "OnMeleeAttacked", "OnOpen", "OnSpellCastAt", "OnTrapTriggered", "OnUnlock", "OnUserDefined", "OnClick", "OnFailToOpen", "Conversation", "LinkedTo", "KeyName"};
+            static const char *const WANT[1] = {TILESET};
+            areas_t sas;
+            resman srm;
+            tileset sts;
+            size_t li, sa, sd, fi;
+            if (resman_open(&srm, root, err) != 0 || scan_stock(root, WANT, 1, &sas) != 0 || load_tileset(&srm, TILESET, &sts) != 0) return die(NULL);
+            for (li = 0; li < 7; li++) {
+                int found = 0;
+                for (sa = 0; sa < sas.n && !found; sa++) {
+                    const area_t *ar = &sas.a[sa];
+                    for (sd = 0; sd < ar->ndoor && !found; sd++) {
+                        const gff_struct *s = ar->door[sd];
+                        int cx = (int)(gff_get_float(s, "X", -1) / 10.0), cy = (int)(gff_get_float(s, "Y", -1) / 10.0), tid, ok2 = 1;
+                        double fx = gff_get_float(s, "X", 0) / 10.0 - cx - 0.5, fy = gff_get_float(s, "Y", 0) / 10.0 - cy - 0.5;
+                        if (cx < 0 || cy < 0 || cx >= ar->w || cy >= ar->h || cy * ar->w + cx >= ar->n) continue;
+                        tid = ar->tid[cy * ar->w + cx];
+                        if (tid < 0 || (size_t)tid >= sts.n || sts.t[tid].ndslot < 1 || sts.t[tid].dslot[0].type != 0) continue;
+                        if (!(fx > 0.45 || fx < -0.45 || fy > 0.45 || fy < -0.45)) continue; /* a door on a tile edge, not a stair or fence door */
+                        if (gff_get_int(s, "GenericType_New", -1) != LOOKS[li] || gff_get_int(s, "Appearance", -1) != 0) continue;
+                        if (gff_get_int(s, "Locked", 1) || gff_get_int(s, "Plot", 1) || gff_get_int(s, "TrapFlag", 1) || gff_get_int(s, "AnimationState", 1) || gff_get_int(s, "KeyRequired", 1)) continue;
+                        for (fi = 0; fi < sizeof ON / sizeof ON[0]; fi++) { const char *v = gff_get_string(s, ON[fi]); if (v && *v) ok2 = 0; }
+                        if (!ok2) continue;
+                        gff_list_append(gff_find(dgit.root, "Door List"), gff_struct_clone(s));
+                        found = 1;
+                    }
+                }
+                if (!found) fprintf(stderr, "templates: no clean stock door for generic look %d\n", LOOKS[li]);
+            }
+            tileset_free(&sts);
+            free_areas(&sas);
+            resman_close(&srm);
+        }
         if (gff_write(&dgit, &buf, &len, err) != 0 || write_out(outdir, "tpl_door.git", buf, len) != 0) return die(NULL);
         free(buf);
         gff_free(&dgit); gff_free(&dg);
@@ -1004,13 +1048,160 @@ static int cmd_kit_report(const char *root)
     return 0;
 }
 
+/* ---------- door-report: tiles whose door slot is a generic door (type 0) and what stock areas put there (read-only survey) ---------- */
+static int cmd_door_report(const char *root)
+{
+    static const char *const WANT[1] = {TILESET};
+    areas_t as;
+    resman rm;
+    tileset ts;
+    long (*uses)[4];
+    struct { char tmpl[24]; long app, gen, plot, locked, n; } agg[64];
+    size_t i, a, nagg = 0, d;
+    int j;
+
+    if (resman_open(&rm, root, err) != 0) return die(NULL);
+    if (scan_stock(root, WANT, 1, &as) != 0) return die(NULL);
+    if (load_tileset(&rm, TILESET, &ts) != 0) return die(NULL);
+    uses = xcalloc(ts.n ? ts.n : 1, sizeof *uses);
+    for (a = 0; a < as.n; a++)
+        for (j = 0; j < as.a[a].n; j++) {
+            int t = as.a[a].tid[j], o = as.a[a].orient[j];
+            if (t >= 0 && (size_t)t < ts.n && o >= 0 && o < 4) uses[t][o]++;
+        }
+    printf("tiles whose door slot is a generic door (slot type 0); corners NW NE SW SE and edges TRBL at orientation 0:\n");
+    printf("%-4s %-14s %-5s %-9s %-5s %-24s %s\n", "tid", "model", "corn", "edgesTRBL", "slots", "slot0 x y z facing", "stock uses by orientation");
+    for (i = 0; i < ts.n; i++) {
+        const set_tile *t = &ts.t[i];
+        tile_sig_t sg;
+        char cs[5], es[5];
+        int k;
+        if (t->ndslot < 1 || t->dslot[0].type != 0) continue;
+        tile_sig(t, 0, 1, &sg);
+        for (k = 0; k < 4; k++) {
+            cs[k] = !strcmp(sg.corner[k], "Floor") ? 'F' : !strcmp(sg.corner[k], "Wall") ? 'W' : 'P';
+            es[k] = sg.edge[k][0] ? sg.edge[k][0] : '-';
+        }
+        cs[4] = es[4] = 0;
+        printf("%-4zu %-14s %-5s %-9s %-5d %5.1f %5.1f %5.2f %6.1f  %ld/%ld/%ld/%ld\n", i, t->model, cs, es, t->ndslot, t->dslot[0].x, t->dslot[0].y, t->dslot[0].z, t->dslot[0].orient, uses[i][0], uses[i][1], uses[i][2], uses[i][3]);
+    }
+    memset(agg, 0, sizeof agg);
+    for (a = 0; a < as.n; a++) {
+        const area_t *ar = &as.a[a];
+        for (d = 0; d < ar->ndoor; d++) {
+            const gff_struct *s = ar->door[d];
+            int cx = (int)(gff_get_float(s, "X", -1) / 10.0), cy = (int)(gff_get_float(s, "Y", -1) / 10.0), tid = -1;
+            size_t q;
+            const char *tr;
+            if (cx >= 0 && cy >= 0 && cx < ar->w && cy < ar->h && cy * ar->w + cx < ar->n) tid = ar->tid[cy * ar->w + cx];
+            if (tid < 0 || (size_t)tid >= ts.n || ts.t[tid].ndslot < 1 || ts.t[tid].dslot[0].type != 0) continue;
+            tr = gff_get_string(s, "TemplateResRef");
+            for (q = 0; q < nagg; q++)
+                if (!strcmp(agg[q].tmpl, tr ? tr : "") && agg[q].app == gff_get_int(s, "Appearance", -1) && agg[q].gen == gff_get_int(s, "GenericType_New", -1)) break;
+            if (q == nagg && nagg < 64) { snprintf(agg[q].tmpl, sizeof agg[q].tmpl, "%s", tr ? tr : ""); agg[q].app = gff_get_int(s, "Appearance", -1); agg[q].gen = gff_get_int(s, "GenericType_New", -1); nagg++; }
+            if (q < 64) { agg[q].n++; agg[q].plot += gff_get_int(s, "Plot", 0) != 0; agg[q].locked += gff_get_int(s, "Locked", 0) != 0; }
+        }
+    }
+    printf("\nstock GIT doors standing on those tiles, grouped by template, Appearance and GenericType_New:\n");
+    printf("%-18s %10s %8s %6s %6s %6s\n", "template", "Appearance", "Generic", "doors", "plot", "locked");
+    for (i = 0; i < nagg; i++) printf("%-18s %10ld %8ld %6ld %6ld %6ld\n", agg[i].tmpl, agg[i].app, agg[i].gen, agg[i].n, agg[i].plot, agg[i].locked);
+    {   /* Doorway seams: two touching tiles that both carry a Doorway edge. How many stock doors stand on each seam, and where? */
+        long hist[4] = {0, 0, 0, 0};
+        long nseam = 0;
+        int shown = 0;
+        for (a = 0; a < as.n; a++) {
+            const area_t *ar = &as.a[a];
+            int cx, cy, dir;
+            for (cy = 0; cy < ar->h; cy++)
+                for (cx = 0; cx < ar->w; cx++)
+                    for (dir = 0; dir < 2; dir++) { /* 0: seam with the east neighbour, 1: with the north neighbour */
+                        int nx = cx + (dir == 0), ny = cy + (dir == 1), t1, t2;
+                        tile_sig_t s1, s2;
+                        double sx, sy;
+                        long nd = 0;
+                        if (nx >= ar->w || ny >= ar->h) continue;
+                        t1 = ar->tid[cy * ar->w + cx];
+                        t2 = ar->tid[ny * ar->w + nx];
+                        if (t1 < 0 || t2 < 0 || (size_t)t1 >= ts.n || (size_t)t2 >= ts.n) continue;
+                        tile_sig(&ts.t[t1], ar->orient[cy * ar->w + cx], 1, &s1);
+                        tile_sig(&ts.t[t2], ar->orient[ny * ar->w + nx], 1, &s2);
+                        if (strcmp(s1.edge[dir == 0 ? E_E : E_N], "Doorway") || strcmp(s2.edge[dir == 0 ? E_W : E_S], "Doorway")) continue;
+                        sx = cx * 10.0 + 5.0 + (dir == 0 ? 5.0 : 0.0);
+                        sy = cy * 10.0 + 5.0 + (dir == 1 ? 5.0 : 0.0);
+                        nseam++;
+                        for (d = 0; d < ar->ndoor; d++) {
+                            double dx = gff_get_float(ar->door[d], "X", -1000) - sx, dy = gff_get_float(ar->door[d], "Y", -1000) - sy;
+                            if (dx > -1.0 && dx < 1.0 && dy > -1.0 && dy < 1.0) nd++;
+                        }
+                        hist[nd > 3 ? 3 : nd]++;
+                        if (shown < 6 && nd == 1) {
+                            for (d = 0; d < ar->ndoor; d++) {
+                                double dx = gff_get_float(ar->door[d], "X", -1000) - sx, dy = gff_get_float(ar->door[d], "Y", -1000) - sy;
+                                if (dx > -1.0 && dx < 1.0 && dy > -1.0 && dy < 1.0) {
+                                    printf("  seam %s/%s (%d,%d)%s %s|%s: door off by %.2f %.2f, z %.2f, bearing %.4f\n", ar->arc, ar->name, cx, cy, dir ? " north" : " east",
+                                           ts.t[t1].model, ts.t[t2].model, dx, dy, gff_get_float(ar->door[d], "Z", 0), gff_get_float(ar->door[d], "Bearing", 0));
+                                    shown++;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+        }
+        printf("\nDoorway-to-Doorway seams in stock areas: %ld; seams with 0/1/2/3+ doors within 1 m: %ld/%ld/%ld/%ld\n", nseam, hist[0], hist[1], hist[2], hist[3]);
+    }
+    {   /* bearings of the single seam doors by seam axis, and the clean (unlocked, no scripts) donors per generic look */
+        struct { int dir; long b100, n; } bh[32];
+        size_t nbh = 0, q2;
+        long clean[32] = {0}, total[32] = {0};
+        memset(bh, 0, sizeof bh);
+        for (a = 0; a < as.n; a++) {
+            const area_t *ar = &as.a[a];
+            for (d = 0; d < ar->ndoor; d++) {
+                const gff_struct *s = ar->door[d];
+                int cx = (int)(gff_get_float(s, "X", -1) / 10.0), cy = (int)(gff_get_float(s, "Y", -1) / 10.0), tid = -1;
+                double fx, fy;
+                long g = gff_get_int(s, "GenericType_New", -1), b100;
+                size_t fi;
+                int dir, clean_ok = 1;
+                static const char *const ON[] = {"OnClosed", "OnDamaged", "OnDeath", "OnDisarm", "OnHeartbeat", "OnLock", "OnMeleeAttacked", "OnOpen", "OnSpellCastAt", "OnTrapTriggered", "OnUnlock", "OnUserDefined", "OnClick", "OnFailToOpen", "Conversation", "LinkedTo", "KeyName"};
+                if (cx < 0 || cy < 0 || cx >= ar->w || cy >= ar->h || cy * ar->w + cx >= ar->n) continue;
+                tid = ar->tid[cy * ar->w + cx];
+                if (tid < 0 || (size_t)tid >= ts.n || ts.t[tid].ndslot < 1 || ts.t[tid].dslot[0].type != 0 || g < 0 || g > 27) continue;
+                fx = gff_get_float(s, "X", 0) / 10.0 - cx - 0.5;
+                fy = gff_get_float(s, "Y", 0) / 10.0 - cy - 0.5;
+                if (fx > 0.45 || fx < -0.45) dir = 0; else if (fy > 0.45 || fy < -0.45) dir = 1; else continue; /* only doors standing on a tile edge */
+                b100 = (long)(gff_get_float(s, "Bearing", 0) * 100.0 + (gff_get_float(s, "Bearing", 0) < 0 ? -0.5 : 0.5));
+                for (q2 = 0; q2 < nbh; q2++) if (bh[q2].dir == dir && bh[q2].b100 == b100) break;
+                if (q2 == nbh && nbh < 32) { bh[q2].dir = dir; bh[q2].b100 = b100; nbh++; }
+                if (q2 < 32) bh[q2].n++;
+                total[g]++;
+                if (gff_get_int(s, "Locked", 1) || gff_get_int(s, "Plot", 1) || gff_get_int(s, "TrapFlag", 1) || gff_get_int(s, "AnimationState", 1) || gff_get_int(s, "KeyRequired", 1)) clean_ok = 0;
+                for (fi = 0; fi < sizeof ON / sizeof ON[0]; fi++) {
+                    const char *v = gff_get_string(s, ON[fi]);
+                    if (v && *v) clean_ok = 0;
+                }
+                clean[g] += clean_ok;
+            }
+        }
+        printf("\ndoors standing on a tile edge, by edge axis (0 = door in an east-west seam, 1 = north-south) and bearing:\n");
+        for (q2 = 0; q2 < nbh; q2++) printf("  axis %d bearing %6.2f: %ld door(s)\n", bh[q2].dir, bh[q2].b100 / 100.0, bh[q2].n);
+        printf("\nclean donors (unlocked, not plot, untrapped, closed, no scripts/conversation/link/key) by GenericType_New / all doors:\n");
+        for (q2 = 0; q2 < 28; q2++) if (total[q2]) printf("  generic %2zu: %ld / %ld\n", q2, clean[q2], total[q2]);
+    }
+    free(uses);
+    tileset_free(&ts);
+    free_areas(&as);
+    resman_close(&rm);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     const char *root = getenv("NWN_ROOT");
     int a = 1;
     if (a + 1 < argc && !strcmp(argv[a], "--root")) { root = argv[a + 1]; a += 2; }
     if (!root || a >= argc) {
-        fputs("usage: nwnpack [--root INSTALL] check | tilepack OUT.txt | tilepack-rich OUT.txt | tilepack-kit OUT.txt | templates OUTDIR | ls EXT [PREFIX] | extract NAME EXT OUT | roster-check ROSTER.txt | tile-report | kit-report   (INSTALL defaults to $NWN_ROOT)\n", stderr);
+        fputs("usage: nwnpack [--root INSTALL] check | tilepack OUT.txt | tilepack-rich OUT.txt | tilepack-kit OUT.txt | templates OUTDIR | ls EXT [PREFIX] | extract NAME EXT OUT | roster-check ROSTER.txt | tile-report | kit-report | door-report   (INSTALL defaults to $NWN_ROOT)\n", stderr);
         return 2;
     }
     if (!strcmp(argv[a], "check") && a + 1 == argc) return cmd_check(root);
@@ -1021,6 +1212,7 @@ int main(int argc, char **argv)
     if (!strcmp(argv[a], "ls") && (a + 2 == argc || a + 3 == argc)) return cmd_ls(root, argv[a + 1], a + 3 == argc ? argv[a + 2] : NULL);
     if (!strcmp(argv[a], "extract") && a + 4 == argc) return cmd_extract(root, argv[a + 1], argv[a + 2], argv[a + 3]);
     if (!strcmp(argv[a], "kit-report") && a + 1 == argc) return cmd_kit_report(root);
+    if (!strcmp(argv[a], "door-report") && a + 1 == argc) return cmd_door_report(root);
     if (!strcmp(argv[a], "tile-report") && a + 1 == argc) return cmd_tile_report(root);
     if (!strcmp(argv[a], "roster-check") && a + 2 == argc) return cmd_roster_check(root, argv[a + 1]);
     fputs("nwnpack: unknown command or arguments\n", stderr);

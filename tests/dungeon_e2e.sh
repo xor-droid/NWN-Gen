@@ -246,6 +246,48 @@ for seed in 1 2 3 4 5 6 7 8; do dgk "$T/k/x$seed.mod" >/dev/null 2>&1 || nbadloo
 { cat "$FX/recipe_kit.txt"; } | sed 's/^doors plain/doors sideways/' > "$FX/r_badlook.txt"
 badruns "doors sideways" --recipe "$FX/r_badlook.txt"
 
+# --- doors doorway: a generic-look door in every corridor entrance (Doorway edge tiles) -----------------
+sed 's/^doors plain/doors doorway/' "$FX/recipe_kit.txt" > "$FX/recipe_kit_doorway.txt"
+dwdoors=0; dwlooks=""
+for seed in 1 2 3 4 5 6 7 8 9 10; do
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_doorway.txt" --seed $seed --output "$T/k/w$seed.mod" --manifest "$T/k/w$seed.txt" >"$T/k/w$seed.out" || { bad "doors doorway generate seed $seed"; continue; }
+  dgk "$T/k/w$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck doors doorway seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+  grep -q "adjacency violations 0" "$T/dg.txt" && ok || bad "doors doorway seed $seed adjacency"
+  grep -q '^doors=doorway$' "$T/k/w$seed.txt" && ok || bad "doors doorway manifest seed $seed"
+  dwdoors=$((dwdoors + $(sed -n 's/^doors\.[a-z]*=//p' "$T/k/w$seed.txt" | awk '{s += $1} END {print s + 0}')))
+  dwlooks="$dwlooks,$(sed -n 's/^door_looks=//p' "$T/k/w$seed.txt")"
+done
+[ "$dwdoors" -gt 0 ] && ok || bad "doors doorway produced no door"
+for g in generic0 generic2 generic4; do
+  case "$dwlooks" in *$g:*) ok ;; *) bad "doors doorway never used look $g ($dwlooks)" ;; esac
+done
+grep -q '^  Door looks: ' "$T/k/w1.out" && ok || bad "doors doorway summary lacks Door looks"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_doorway.txt" --seed 3 --output "$T/k/again_w.mod" >/dev/null && cmp -s "$T/k/again_w.mod" "$T/k/w3.mod" && ok || bad "doors doorway is not reproducible"
+# the Doorway records do not change plain, mixed or wide builds: same bytes with and without them in the pack
+awk '$1 == "kit" && $3 ~ /D/ {next} {print}' "$FX/tilepack_kit.txt" > "$FX/tilepack_kit_nodw.txt"
+for mode in recipe_kit recipe_kit_mixed; do
+  sed 's/^tilepack tilepack_kit.txt/tilepack tilepack_kit_nodw.txt/' "$FX/$mode.txt" > "$FX/${mode}_nodw.txt"
+  for seed in 5 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/$mode.txt" --seed $seed --output "$T/k/a.mod" --force >/dev/null && "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/${mode}_nodw.txt" --seed $seed --output "$T/k/b.mod" --force >/dev/null && cmp -s "$T/k/a.mod" "$T/k/b.mod" && ok || bad "$mode seed $seed changed because the pack lists Doorway tiles"
+  done
+done
+# an old template without generic donors is refused, and so is a pack without Doorway tiles
+sed 's/^template_door tpl_door.git/template_door tpl_door1.git/' "$FX/recipe_kit_doorway.txt" > "$FX/r_dw_old.txt"
+badruns "doors doorway with an old template_door" --recipe "$FX/r_dw_old.txt"
+grep -q "nwnpack templates" "$T/err.txt" && ok || bad "doors doorway old template message"
+sed 's/^tilepack tilepack_kit.txt/tilepack tilepack_kit_nodw.txt/' "$FX/recipe_kit_doorway.txt" > "$FX/r_dw_nopack.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/r_dw_nopack.txt" --seed 3 --output "$T/k/nopack.mod" --manifest "$T/k/nopack.txt" --force >/dev/null && ! grep -q '^door_looks=.' "$T/k/nopack.txt" && ok || bad "doors doorway without Doorway tiles should build with no doorway doors"
+# negative proofs: the validator reads the tileset, so lies about edges or door slots must show
+KSET=tileset_kit_dwedge.set; sed 's/^Left=Doorway/Left=Corridor/' "$FX/tileset_kit.set" > "$FX/$KSET"
+nbad=0; for seed in 1 2 3 4 5; do dgk "$T/k/w$seed.mod" >/dev/null 2>&1 || nbad=$((nbad + 1)); done
+[ "$nbad" -gt 0 ] && ok || bad "dgcheck accepted Doorway tiles whose left edges the tileset calls Corridor"
+KSET=tileset_kit_dwtype.set; sed 's/^Type=0$/Type=22/' "$FX/tileset_kit.set" > "$FX/$KSET"
+nbad=0; for seed in 1 2 3 4 5; do dgk "$T/k/w$seed.mod" >/dev/null 2>&1 || nbad=$((nbad + 1)); done
+[ "$nbad" -gt 0 ] && ok || bad "dgcheck accepted generic doors on a slot the tileset types as 22"
+sed 's/^doors plain/doors sideways/' "$FX/recipe_kit.txt" > "$FX/r_badlook2.txt"
+badruns "doors sideways (message lists doorway)" --recipe "$FX/r_badlook2.txt"
+grep -q "doorway" "$T/err.txt" && ok || bad "doors error should list doorway"
+
 # kit corridors without doors
 sed '/^doors plain/d; /^template_door/d' "$FX/recipe_kit.txt" > "$FX/recipe_kit_nodoor.txt"
 "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_nodoor.txt" --seed 3 --output "$T/k/nd.mod" --manifest "$T/k/nd.txt" >/dev/null && ok || bad "kit without doors generation"

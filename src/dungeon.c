@@ -98,7 +98,7 @@ int tilepack_parse(const char *text, size_t len, tilepack *p, char *err)
         } else if (!strncmp(buf, "kit ", 4)) {
             char sg[8], mk[8];
             unsigned w;
-            int tid, ori, used = 0, idx, mask = 0, has_door = 0, app = 22;
+            int tid, ori, used = 0, idx, mask = 0, dmask = 0, has_door = 0, app = 22;
             double dx = 0, dy = 0, dz = 0, br = 0;
             pack_kit *pk;
             if (sscanf(buf + 4, "%7s %7s %u %d %d%n", sg, mk, &w, &tid, &ori, &used) != 5) {
@@ -112,16 +112,17 @@ int tilepack_parse(const char *text, size_t len, tilepack *p, char *err)
                     set_err(err, "tilepack line %d: bad kit door suffix", line);
                     goto bad;
                 }
-                if (q[used2] && (sscanf(q + used2, " %d%n", &app, &used3) != 1 || q[used2 + used3] || app < 1 || app > 255)) {
-                    set_err(err, "tilepack line %d: bad kit door suffix (look must be 1-255)", line);
+                if (q[used2] && (sscanf(q + used2, " %d%n", &app, &used3) != 1 || q[used2 + used3] || app < 0 || app > 255)) {
+                    set_err(err, "tilepack line %d: bad kit door suffix (look must be 0-255)", line);
                     goto bad;
                 }
                 has_door = 1;
             }
             idx = strlen(sg) == 4 ? sig_index(sg) : -1;
             for (k = 0; k < 4; k++) {
-                if (strlen(mk) != 4 || (mk[k] != '-' && mk[k] != 'C')) { mask = -1; break; }
-                mask |= (mk[k] == 'C') << k;
+                if (strlen(mk) != 4 || (mk[k] != '-' && mk[k] != 'C' && mk[k] != 'D')) { mask = -1; break; }
+                mask |= (mk[k] != '-') << k;
+                dmask |= (mk[k] == 'D') << k;
             }
             if (idx < 0 || is_diagonal(idx) || mask <= 0 || w < 1 || w > 1000000 || tid < 0 || tid > 100000 || ori < 0 || ori > 3) {
                 set_err(err, "tilepack line %d: bad kit record", line);
@@ -129,7 +130,7 @@ int tilepack_parse(const char *text, size_t len, tilepack *p, char *err)
             }
             p->kit = xrealloc(p->kit, (p->nkit + 1) * sizeof *p->kit);
             pk = &p->kit[p->nkit++];
-            pk->sig = idx; pk->mask = mask; pk->w = w; pk->tid = tid; pk->orient = ori;
+            pk->sig = idx; pk->mask = mask; pk->dmask = dmask; pk->w = w; pk->tid = tid; pk->orient = ori;
             pk->has_door = has_door; pk->dx = dx; pk->dy = dy; pk->dz = dz; pk->bearing = br; pk->app = app;
         } else if (!strncmp(buf, "light ", 6)) {
             pack_light *pl;
@@ -519,6 +520,8 @@ int layout_make_kit(sm64 *rng, int W, int H, int nrooms, layout *l, char *err)
             l->link_n[i] = n;
             l->nlink = i + 1;
             conn[ca[1]][ca[0]] = conn[cb[1]][cb[0]] = 1;
+            l->conn[i][0][0] = (unsigned char)ca[0]; l->conn[i][0][1] = (unsigned char)ca[1]; l->conn[i][0][2] = (unsigned char)sa;
+            l->conn[i][1][0] = (unsigned char)cb[0]; l->conn[i][1][1] = (unsigned char)cb[1]; l->conn[i][1][2] = (unsigned char)sb;
             l->kedge[ca[1]][ca[0]] |= (unsigned char)KBIT[sa];
             l->kedge[sa_c[1]][sa_c[0]] |= (unsigned char)KOPP[sa];
             l->kedge[cb[1]][cb[0]] |= (unsigned char)KBIT[sb];
@@ -865,7 +868,11 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
             return -1;
         }
         for (m = 0; m < a->ndoor; m++) {
-            gff_struct *dr = gff_struct_clone(dd->list[0]);
+            if ((size_t)a->door[m].donor >= dd->nlist) {
+                set_err(err, "template GIT has no door donor %d", a->door[m].donor);
+                return -1;
+            }
+            gff_struct *dr = gff_struct_clone(dd->list[a->door[m].donor]);
             snprintf(tag, sizeof tag, "DOOR_%s_%zu", U, m + 1);
             if (gff_set_string(dr, "Tag", GFF_STRING, tag, err) || gff_set_float(dr, "X", (float)a->door[m].x, err) ||
                 gff_set_float(dr, "Y", (float)a->door[m].y, err) || gff_set_float(dr, "Z", (float)a->door[m].z, err) ||
@@ -1012,7 +1019,7 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, in
             int looks[8], nl = 0, lk;
             for (q = 0; q < tp->nkit; q++) {
                 int f = 0;
-                if (!tp->kit[q].has_door || tp->kit[q].sig != 0 || tp->kit[q].mask != mask)
+                if (!tp->kit[q].has_door || tp->kit[q].dmask || tp->kit[q].sig != 0 || tp->kit[q].mask != mask)
                     continue;
                 for (lk = 0; lk < nl; lk++)
                     f |= looks[lk] == tp->kit[q].app;
@@ -1028,7 +1035,7 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, in
                 look = looks[nl > 1 ? (int)sm64_bounded(&drng, (uint64_t)nl) : 0];
         }
         for (q = 0; q < tp->nkit; q++)
-            if (tp->kit[q].has_door && tp->kit[q].sig == 0 && tp->kit[q].mask == mask && tp->kit[q].app == look)
+            if (tp->kit[q].has_door && !tp->kit[q].dmask && tp->kit[q].sig == 0 && tp->kit[q].mask == mask && tp->kit[q].app == look)
                 total += tp->kit[q].w;
         if (!total) {
             set_err(err, "the tilepack has no door tile for a corridor with edges 0x%x (build it with nwnpack tilepack-kit)", mask);
@@ -1036,7 +1043,7 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, in
         }
         rr = sm64_bounded(&drng, total);
         for (q = 0; q < tp->nkit; q++) {
-            if (!tp->kit[q].has_door || tp->kit[q].sig != 0 || tp->kit[q].mask != mask || tp->kit[q].app != look)
+            if (!tp->kit[q].has_door || tp->kit[q].dmask || tp->kit[q].sig != 0 || tp->kit[q].mask != mask || tp->kit[q].app != look)
                 continue;
             if (rr < tp->kit[q].w)
                 break;
@@ -1053,7 +1060,90 @@ static int place_doors(const tilepack *tp, uint64_t seed, const char *resref, in
         a->door[j].z = tp->kit[q].dz;
         a->door[j].bearing = tp->kit[q].bearing;
         a->door[j].app = tp->kit[q].app;
+        a->door[j].donor = 0; /* the corridor door */
+        a->door[j].gen = -1;
     }
+    return 0;
+}
+
+/* doors doorway: a door in the entrance of every corridor. Each link end has a room-wall connector cell and the first corridor cell behind it; where
+ * the pack has a Doorway version of both (a connector with the door record, and a cell with one Doorway and one Corridor edge) they replace the
+ * ordinary tiles and one generic-look door stands on the seam between them, as in stock areas. An end the pack cannot serve (the elbow tile of one
+ * handedness fails the walkmesh rule) keeps its plain connector. Own RNG domain, so the ordinary tile draw is untouched. */
+static int place_doorways(const tilepack *tp, uint64_t seed, const char *resref, const gff *tpl_git, dungeon_area *a, char *err)
+{
+    const layout *l = &a->lay;
+    const gff_field *dd = gff_find(tpl_git->root, "Door List");
+    uint8_t h[32];
+    uint64_t v = 0;
+    sm64 drng;
+    int i, e, k;
+
+    if (!dd || dd->type != GFF_LIST || dd->nlist < 2) {
+        set_err(err, "doors doorway needs generic-door donors in template_door (run nwnpack templates again)");
+        return -1;
+    }
+    domain_hash("nwndgen/doorway/1", 17, seed, resref, h);
+    for (k = 0; k < 8; k++)
+        v = v << 8 | h[k];
+    sm64_seed(&drng, v);
+    for (i = 0; i < l->nlink; i++)
+        for (e = 0; e < 2; e++) {
+            const int n = l->link_n[i];
+            const int cx = l->conn[i][e][0], cy = l->conn[i][e][1], side = l->conn[i][e][2];
+            const int fx = l->link[i][e ? n - 1 : 0][0], fy = l->link[i][e ? n - 1 : 0][1];
+            const int cmask = l->kedge[cy][cx], fmask = l->kedge[fy][fx], dbit = KOPP[side];
+            const int cidx = cell_idx(l, cx, cy), fidx = cell_idx(l, fx, fy);
+            uint64_t ctot = 0, ftot = 0, rr;
+            size_t q, cq = 0, fq = 0, donor;
+            if (n < 2)
+                continue;
+            for (q = 0; q < tp->nkit; q++) {
+                const pack_kit *p = &tp->kit[q];
+                if (p->has_door && p->app == 0 && p->sig == cidx && p->mask == cmask && p->dmask == cmask)
+                    ctot += p->w;
+                if (!p->has_door && p->sig == fidx && p->mask == fmask && p->dmask == dbit)
+                    ftot += p->w;
+            }
+            if (!ctot || !ftot)
+                continue;
+            rr = sm64_bounded(&drng, ctot);
+            for (q = 0; q < tp->nkit; q++) {
+                const pack_kit *p = &tp->kit[q];
+                if (!p->has_door || p->app != 0 || p->sig != cidx || p->mask != cmask || p->dmask != cmask)
+                    continue;
+                if (rr < p->w)
+                    break;
+                rr -= p->w;
+            }
+            cq = q;
+            rr = sm64_bounded(&drng, ftot);
+            for (q = 0; q < tp->nkit; q++) {
+                const pack_kit *p = &tp->kit[q];
+                if (p->has_door || p->sig != fidx || p->mask != fmask || p->dmask != dbit)
+                    continue;
+                if (rr < p->w)
+                    break;
+                rr -= p->w;
+            }
+            fq = q;
+            donor = 1 + (size_t)sm64_bounded(&drng, (uint64_t)(dd->nlist - 1));
+            a->tiles[cy * l->w + cx].tid = tp->kit[cq].tid;
+            a->tiles[cy * l->w + cx].orient = tp->kit[cq].orient;
+            a->tiles[fy * l->w + fx].tid = tp->kit[fq].tid;
+            a->tiles[fy * l->w + fx].orient = tp->kit[fq].orient;
+            a->door = xrealloc(a->door, (a->ndoor + 1) * sizeof *a->door);
+            a->door[a->ndoor].cx = cx;
+            a->door[a->ndoor].cy = cy;
+            a->door[a->ndoor].x = cc(cx) + tp->kit[cq].dx;
+            a->door[a->ndoor].y = cc(cy) + tp->kit[cq].dy;
+            a->door[a->ndoor].z = tp->kit[cq].dz;
+            a->door[a->ndoor].bearing = tp->kit[cq].bearing;
+            a->door[a->ndoor].app = 0;
+            a->door[a->ndoor].donor = (int)donor;
+            a->door[a->ndoor].gen = (int)gff_get_int(dd->list[donor], "GenericType_New", -1);
+            a->ndoor++;
+        }
     return 0;
 }
 
@@ -1092,7 +1182,7 @@ int dungeon_build_ex(const recipe *r, const tilepack *tp, const gff *tpl_are, co
                 size_t k;
                 if (mask) { /* a kit corridor cell or a room-wall connector: pick among the kit tiles with these corners and edges */
                     for (k = 0; k < tp->nkit; k++)
-                        if (tp->kit[k].sig == idx && tp->kit[k].mask == mask && !tp->kit[k].has_door)
+                        if (tp->kit[k].sig == idx && tp->kit[k].mask == mask && !tp->kit[k].has_door && !tp->kit[k].dmask)
                             total += tp->kit[k].w;
                     if (!total) {
                         set_err(err, "area '%s': the tilepack has no kit tile for corners %c%c%c%c with edges 0x%x at cell (%d,%d)", ra->resref,
@@ -1101,7 +1191,7 @@ int dungeon_build_ex(const recipe *r, const tilepack *tp, const gff *tpl_are, co
                     }
                     rr = sm64_bounded(&rng, total);
                     for (k = 0; k < tp->nkit; k++) {
-                        if (tp->kit[k].sig != idx || tp->kit[k].mask != mask || tp->kit[k].has_door)
+                        if (tp->kit[k].sig != idx || tp->kit[k].mask != mask || tp->kit[k].has_door || tp->kit[k].dmask)
                             continue;
                         if (rr < tp->kit[k].w)
                             break;
@@ -1122,7 +1212,11 @@ int dungeon_build_ex(const recipe *r, const tilepack *tp, const gff *tpl_are, co
                 t[y * (int)ra->w + x].tid = pc->t[k].tid;
                 t[y * (int)ra->w + x].orient = pc->t[k].orient;
             }
-        if (r->doors && place_doors(tp, seed, ra->resref, r->doors == 2, a, msg) != 0) {
+        if (r->doors == 3 && place_doorways(tp, seed, ra->resref, tpl_git, a, msg) != 0) {
+            set_err(err, "area '%s': %s", ra->resref, msg);
+            goto fail;
+        }
+        if ((r->doors == 1 || r->doors == 2) && place_doors(tp, seed, ra->resref, r->doors == 2, a, msg) != 0) {
             set_err(err, "area '%s': %s", ra->resref, msg);
             goto fail;
         }

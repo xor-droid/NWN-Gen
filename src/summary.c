@@ -97,6 +97,19 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
                 put(&b, "%stype %zu x %d", k++ ? ", " : "", m, ln[m]);
         put(&b, "\n");
     }
+    if (r->doors == 3 && ndoors) { /* doors doorway: how many of each generic look (genericdoors.2da row) */
+        static const char *const GN[10] = {"wood", "fancy wood", "portcullis", "portcullis (2)", "rusted", "metal", "evil stone", "stone", "jeweled", "weak wood"};
+        size_t m;
+        int ln[64] = {0};
+        put(&b, "  Door looks: ");
+        for (a = 0; a < d->n; a++)
+            for (m = 0; m < d->area[a].ndoor; m++)
+                ln[d->area[a].door[m].gen & 63]++;
+        for (m = 0, k = 0; m < 64; m++)
+            if (ln[m])
+                put(&b, "%s%s x %d", k++ ? ", " : "", m < 10 ? GN[m] : "other", ln[m]);
+        put(&b, "\n");
+    }
     if (th)
         put(&b, "  Theme:      %s%s\n", th->name, r->boss_only ? " (boss_only test mode: no regular creatures, boss has 1 hit point)" : r->loot_test ? " (loot_test mode: five creatures and the boss, all on level 1 with 1 hit point and unarmed)" : "");
     else

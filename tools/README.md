@@ -68,11 +68,15 @@ Corridors in the plain and rich packs are wide strips of full-floor cells, which
 can: all-Wall tiles whose edges carry the `Corridor` crosser (`g01` elbows, `g02` straights, `g07_01` a straight with a plain door) and
 the room-wall connector `c13_01`. `nwnpack kit-report` prints how stock areas use these tiles and dumps every stock `Door List` entry on a
 door tile (type, position relative to the tile, bearing), which is where the generator's door placement comes from.
+
+`nwnpack door-report` (read-only survey) lists the tiles whose door slot is a generic door (slot type 0, the "Doorway" edge kit) with their edges, slot position and stock use, and groups the stock doors standing on them by template, `Appearance` and `GenericType_New` (the row in `genericdoors.2da`). The survey also counts the doors standing on Doorway seams, their bearings by seam axis and the clean donor doors per generic look; `doors doorway` is built from it.
 `nwnpack tilepack-kit OUT` writes the rich pack plus `kit SIG EDGES weight tile orient [door X Y Z BEARING [LOOK]]` records, one per
 orientation of each admitted tile. A tile is admitted only if the game's own walkmesh joins the midpoint of each Corridor edge, each
 all-Floor edge and the door slot into one walkable region. `nwnpack templates` now also writes `tpl_door.git` (stock `nw_door_ttr_08`,
 verified closed, unlocked and not plot in the source module). Use them through the recipe keys `corridors kit`, `doors plain` and
 `template_door` (see USAGE.md).
+
+`tilepack-kit` also lists the Doorway kit: `a13_01` (room wall with a Doorway edge, carrying the door record with look 0 = a generic door) and the corridor cells behind it `g16_01`, `f18_01` (edges with `D`, no door record; `f19_01` fails the walkmesh rule and is skipped). `nwnpack templates` appends one clean stock generic door per look (`GenericType_New` 0, 2, 4, 5, 6, 7, 8) to `tpl_door.git` after the corridor door. Only `doors doorway` uses them.
 
 `tilepack-kit` also lists the second corridor door tile `tdc01_g07_02` (door type 23). Stock areas never place it, so unlike every other kit tile its orientations are not proven by stock use and its lighting is borrowed from g07_01 (the tileset gives both the same flags); the record ends in `23`. Only `doors mixed` uses it.
 

@@ -19,7 +19,7 @@
  *   min_level N | max_level N
  *   template_door tpl_door.git           (optional) donor GIT with one stock door; needed by doors plain
  *   corridors wide|kit                  (optional) kit = stock corridor-kit pieces (needs a tilepack with kit records)
- *   doors none|plain|mixed              (optional) plain = a closed, unlocked door in each kit corridor; mixed = the same with every door look the pack has; both need corridors kit
+ *   doors none|plain|mixed|doorway           (optional) plain = a closed, unlocked door in each kit corridor; mixed = the same with every door look the pack has; doorway = a door of one of several looks at each room entrance; all need corridors kit
  *
  * '#' starts a comment line. Fields are separated by single spaces. */
 #ifndef NWNDGEN_RECIPE_H
@@ -55,7 +55,7 @@ typedef struct {
     uint64_t run_seed;
     unsigned run_party, run_min_lvl, run_max_lvl;
     int kit_corridors; /* corridors kit: narrow stock corridor pieces instead of full-floor 10 m corridors */
-    int doors;         /* 1 = doors plain: one closed, unlocked stock door in each kit corridor; 2 = doors mixed: the same, with every door look the pack has (needs corridors kit) */
+    int doors;         /* 1 = doors plain: one closed, unlocked stock door in each kit corridor; 2 = doors mixed: the same, with every door look the pack has; 3 = doors doorway: a generic-look door in every corridor entrance (all need corridors kit) */
     char module_name[128], module_tag[33], module_desc[512];
     unsigned min_level, max_level, min_party, max_party;
     recipe_area areas[RECIPE_MAX_AREAS];

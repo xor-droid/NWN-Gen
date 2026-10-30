@@ -30,6 +30,7 @@ typedef struct { int tid; uint8_t v[7]; } pack_light;       /* main1 main2 src1 
 /* Corridor-kit tile: effective corners (index as cell[]) and edges after rotation, mask bits T=1 R=2 B=4 L=8 (all Corridor). */
 typedef struct {
     int sig, mask;
+    int dmask;                    /* edges of mask that are Doorway edges (the doorway kit) rather than Corridor edges */
     unsigned w;
     int tid, orient;
     int has_door;
@@ -59,6 +60,7 @@ typedef struct {
     int kit, nlink, link_n[RECIPE_ROOMS_MAX];
     unsigned char kedge[RECIPE_AREA_MAX][RECIPE_AREA_MAX];   /* [y][x] */
     unsigned char link[RECIPE_ROOMS_MAX][LINK_MAX][2];       /* cell x, y */
+    unsigned char conn[RECIPE_ROOMS_MAX][2][3];              /* link i: room-wall connector cell at its start [0] and end [1]: x, y, side (0 E 1 N 2 W 3 S) */
 } layout;
 
 int layout_make(sm64 *rng, int w, int h, int nrooms, layout *out, char *err);
@@ -75,7 +77,7 @@ uint64_t dungeon_area_seed(uint64_t seed, const char *resref);
 void dungeon_module_id(uint64_t seed, const char *tag, uint8_t out[16]);
 
 typedef struct { int tid, orient; } placed_tile;
-typedef struct { int cx, cy, app; double x, y, z, bearing; } dungeon_door;   /* world metres, bearing in radians */
+typedef struct { int cx, cy, app, donor, gen; double x, y, z, bearing; } dungeon_door;   /* donor: index in the template's Door List, gen: its GenericType_New (-1 = not a generic door) */   /* world metres, bearing in radians */
 typedef struct {
     char resref[17];
     layout lay;

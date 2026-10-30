@@ -171,10 +171,11 @@ static size_t check_doors(const area_info *a, const int *tid, const int *ori, co
                 for (q = 0; q < nd && !found; q++) {
                     const gff_struct *d = dl->list[q];
                     double dx = gff_get_float(d, "X", -1000) - ex, dy = gff_get_float(d, "Y", -1000) - ey;
-                    if (used[q] || dx < -0.2 || dx > 0.2 || dy < -0.2 || dy > 0.2) continue;
+                    if ((used[q] && t->dslot[s].type != 0) || dx < -0.2 || dx > 0.2 || dy < -0.2 || dy > 0.2) continue; /* two Doorway tiles share the one door on their seam */
                     used[q] = found = 1;
-                    if (!angle_close(gff_get_float(d, "Bearing", 99), eb)) BAD("%s: door %s faces the wrong way for its tile", a->name, gff_get_string(d, "Tag"));
+                    if (!angle_close(gff_get_float(d, "Bearing", 99), eb) && !(t->dslot[s].type == 0 && angle_close(gff_get_float(d, "Bearing", 99), eb + 3.14159265358979))) BAD("%s: door %s faces the wrong way for its tile", a->name, gff_get_string(d, "Tag"));
                     if (gff_get_int(d, "Appearance", -1) != t->dslot[s].type) BAD("%s: door %s has appearance %lld, the slot wants %d", a->name, gff_get_string(d, "Tag"), (long long)gff_get_int(d, "Appearance", -1), t->dslot[s].type);
+                    if (t->dslot[s].type == 0 && (gff_get_int(d, "GenericType_New", -1) < 0 || gff_get_int(d, "GenericType_New", -1) > 27)) BAD("%s: door %s on a generic door slot has GenericType_New %lld", a->name, gff_get_string(d, "Tag"), (long long)gff_get_int(d, "GenericType_New", -1));
                     if (gff_get_int(d, "Locked", 1) || gff_get_int(d, "Plot", 1) || gff_get_int(d, "AnimationState", 1) || gff_get_int(d, "TrapFlag", 1))
                         BAD("%s: door %s is locked, plot, trapped or not closed", a->name, gff_get_string(d, "Tag"));
                     if (gff_get_float(d, "Z", 99) - t->dslot[s].z > 0.2 || t->dslot[s].z - gff_get_float(d, "Z", 99) > 0.2) BAD("%s: door %s is at the wrong height", a->name, gff_get_string(d, "Tag"));
@@ -336,14 +337,14 @@ static void check_floor_tiles(area_info *ai, size_t na, const tileset *ts, resma
                 st = &ts->t[tid];
                 tile_sig(st, 0, 1, &sg);
                 for (k = 0; k < 4; k++) {
-                    int c = !strcmp(sg.edge[k], "Corridor");
+                    int c = !strcmp(sg.edge[k], "Corridor") || !strcmp(sg.edge[k], "Doorway");
                     corr |= c;
                     if (c || (!strcmp(sg.corner[K1[k]], "Floor") && !strcmp(sg.corner[K2[k]], "Floor"))) { kp[np][0] = DIR[k][0]; kp[np++][1] = DIR[k][1]; }
                 }
                 if (!corr) continue;
                 kcount[tid]++;
                 if (state[tid]) continue;
-                if (st->ndslot > 0) { kp[np][0] = st->dslot[0].x; kp[np++][1] = st->dslot[0].y; }
+                if (st->ndslot > 0 && st->dslot[0].type != 0) { kp[np][0] = st->dslot[0].x; kp[np++][1] = st->dslot[0].y; } /* a generic door sits on the tile edge, its Doorway edge midpoint is checked instead */
                 snprintf(wname, sizeof wname, "%s", st->model);
                 for (c2 = 0; wname[c2]; c2++) if (wname[c2] >= 'A' && wname[c2] <= 'Z') wname[c2] = (char)(wname[c2] + 32);
                 if (resman_get(rm, wname, 2016, &wb, &wl, e2) != 0 || wok_parse((const char *)wb, &w, e2) != 0) {
@@ -771,10 +772,10 @@ int main(int argc, char **argv)
                 for (c = 0; c < 4; c++) f &= !strcmp(sg.corner[c], "Floor");
                 a->floor[q] = (unsigned char)f;
                 for (c = 0; c < 4; c++)
-                    if ((!strcmp(sg.corner[EC[c][0]], "Floor") && !strcmp(sg.corner[EC[c][1]], "Floor")) || !strcmp(sg.edge[c], "Corridor"))
+                    if ((!strcmp(sg.corner[EC[c][0]], "Floor") && !strcmp(sg.corner[EC[c][1]], "Floor")) || !strcmp(sg.edge[c], "Corridor") || !strcmp(sg.edge[c], "Doorway"))
                         a->open[q] |= (unsigned char)(1 << c);
                 for (c = 0; c < 4; c++)
-                    if (f || !strcmp(sg.edge[c], "Corridor")) a->open[q] |= 16;
+                    if (f || !strcmp(sg.edge[c], "Corridor") || !strcmp(sg.edge[c], "Doorway")) a->open[q] |= 16;
             }
         }
         viol = tileset_violations(&ts, a->w, a->h, tid, ori, ORD_ROW_BOTTOM, 1, 1);

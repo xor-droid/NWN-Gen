@@ -749,7 +749,7 @@ static void test_kit_pack(void)
     size_t i;
     static const char *const bad[] = {"kit WWWW C-C- 0 101 0\n", "kit WWWW ---- 1 101 0\n", "kit WWWW C-C- 1 101 4\n", "kit WWWQ C-C- 1 101 0\n",
                                       "kit FWWF C-C- 1 101 0\n", "kit WWWW C-C- 1 101 0 door 1 2\n", "kit WWWW C-C- 1 101 0 junk\n",
-                                      "kit WWWW CxC- 1 101 0\n", "kit WWWW C-C 1 101 0\n", "kit WWWW C-C- 1 9999 0\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 0\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 256\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 23 x\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 2.5\n", "kit WWWW C-C-\n"};
+                                      "kit WWWW CxC- 1 101 0\n", "kit WWWW C-C 1 101 0\n", "kit WWWW C-C- 1 9999 0\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 -1\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 256\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 23 x\n", "kit WWWW C-C- 1 101 0 door 0 0 0 0 2.5\n", "kit WWWW C-C-\n"};
     CHECK(t != NULL);
     if (!t)
         return;
@@ -774,6 +774,42 @@ static void test_kit_pack(void)
     tilepack_free(&p);
     free(u);
     free(t);
+}
+
+static void test_doorway_pack(void)
+{
+    size_t n, m;
+    char *t = slurp("tests/data/tilepack_test.txt", &n), *u;
+    tilepack p;
+    char err[ERRLEN] = "";
+    recipe r;
+    char rd[1024];
+
+    CHECK(t != NULL);
+    if (!t)
+        return;
+    m = strlen(t);
+    u = malloc(m + 512);
+    memcpy(u, t, m);
+    strcpy(u + m, "kit FWFW -D-- 2 105 0 door 5.00 0.00 0.20 -1.5708 0\nkit WWWW D-C- 3 106 1\nkit WWWW C-C- 1 107 0\n");
+    CHECK(tilepack_parse(u, strlen(u), &p, err) == 0 && p.nkit == 3);
+    if (p.nkit == 3) {
+        CHECK(p.kit[0].mask == 2 && p.kit[0].dmask == 2 && p.kit[0].has_door && p.kit[0].app == 0 && p.kit[0].dz == 0.2);
+        CHECK(p.kit[1].mask == 5 && p.kit[1].dmask == 1 && !p.kit[1].has_door); /* one Doorway edge, one Corridor edge */
+        CHECK(p.kit[2].mask == 5 && p.kit[2].dmask == 0); /* a pack without D keeps dmask 0 */
+    }
+    tilepack_free(&p);
+    memcpy(u, t, m);
+    strcpy(u + m, "kit WWWW D-X- 1 105 0\n");
+    CHECK(tilepack_parse(u, strlen(u), &p, err) != 0);
+    free(u);
+    free(t);
+    snprintf(rd, sizeof rd, "%scorridors kit\ndoors doorway\ntemplate_door d.git\n", GOOD_RECIPE);
+    CHECK(recipe_parse(rd, strlen(rd), "dir", &r, err) == 0 && r.doors == 3 && r.kit_corridors);
+    snprintf(rd, sizeof rd, "%scorridors kit\ndoors doorwayx\ntemplate_door d.git\n", GOOD_RECIPE);
+    CHECK(recipe_parse(rd, strlen(rd), "dir", &r, err) != 0 && strstr(err, "doorway"));
+    snprintf(rd, sizeof rd, "%sdoors doorway\ntemplate_door d.git\n", GOOD_RECIPE);
+    CHECK(recipe_parse(rd, strlen(rd), "dir", &r, err) != 0); /* needs corridors kit */
 }
 
 static void test_kit_layout(void)
@@ -2093,6 +2129,7 @@ int main(void)
     test_tilepack();
     test_layout();
     test_kit_pack();
+    test_doorway_pack();
     test_kit_layout();
     test_kit_set();
     test_dungeon();

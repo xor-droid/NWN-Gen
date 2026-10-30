@@ -183,7 +183,8 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             have |= H_DOORS;
             if (!strcmp(rest, "plain")) r->doors = 1;
             else if (!strcmp(rest, "mixed")) r->doors = 2;
-            else if (strcmp(rest, "none")) { set_err(err, "recipe line %d: doors must be none, plain or mixed", line); return -1; }
+            else if (!strcmp(rest, "doorway")) r->doors = 3;
+            else if (strcmp(rest, "none")) { set_err(err, "recipe line %d: doors must be none, plain, mixed or doorway", line); return -1; }
         } else if (!strcmp(buf, "module_name")) {
             if (have & H_NAME) { set_err(err, "recipe line %d: 'module_name' given twice", line); return -1; }
             have |= H_NAME;

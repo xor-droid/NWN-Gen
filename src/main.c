@@ -234,6 +234,15 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
             goto done;
         }
         gff_list_append(dl, gff_struct_clone(src->list[0]));
+        if (c->r.doors == 3) { /* doors doorway: the generic-look donors follow the corridor door */
+            size_t di;
+            if (src->nlist < 2) {
+                set_err(err, "template_door '%s' has no generic-door donors (run nwnpack templates again)", c->r.template_door);
+                goto done;
+            }
+            for (di = 1; di < src->nlist; di++)
+                gff_list_append(dl, gff_struct_clone(src->list[di]));
+        }
     }
     ifo_res = erf_find(base, "module", RES_IFO);
     if (!ifo_res || gff_parse(ifo_res->data, ifo_res->size, &c->ifo, err) != 0) {
@@ -530,7 +539,7 @@ int main(int argc, char **argv)
                 append(&manifest, &mlen, &mcap, "template_door_sha256=%s\n", vh);
             }
             if (c->r.kit_corridors) {
-                append(&manifest, &mlen, &mcap, "corridors=kit\ndoors=%s\n", c->r.doors == 2 ? "mixed" : c->r.doors ? "plain" : "none");
+                append(&manifest, &mlen, &mcap, "corridors=kit\ndoors=%s\n", c->r.doors == 3 ? "doorway" : c->r.doors == 2 ? "mixed" : c->r.doors ? "plain" : "none");
                 for (s = 0; s < c->d.n; s++)
                     append(&manifest, &mlen, &mcap, "doors.%s=%zu\n", c->d.area[s].resref, c->d.area[s].ndoor);
                 if (c->r.doors == 2) {
@@ -543,6 +552,20 @@ int main(int argc, char **argv)
                     for (lk = 0; lk < 256; lk++)
                         if (ln[lk]) {
                             append(&manifest, &mlen, &mcap, "%s%d:%d", first ? "" : ",", lk, ln[lk]);
+                            first = 0;
+                        }
+                    append(&manifest, &mlen, &mcap, "\n");
+                }
+                if (c->r.doors == 3) { /* doors doorway: generic looks (genericdoors.2da rows), counted per look */
+                    int ln[64] = {0}, first = 1, lk;
+                    size_t dm;
+                    for (s = 0; s < c->d.n; s++)
+                        for (dm = 0; dm < c->d.area[s].ndoor; dm++)
+                            ln[c->d.area[s].door[dm].gen & 63]++;
+                    append(&manifest, &mlen, &mcap, "door_looks=");
+                    for (lk = 0; lk < 64; lk++)
+                        if (ln[lk]) {
+                            append(&manifest, &mlen, &mcap, "%sgeneric%d:%d", first ? "" : ",", lk, ln[lk]);
                             first = 0;
                         }
                     append(&manifest, &mlen, &mcap, "\n");
