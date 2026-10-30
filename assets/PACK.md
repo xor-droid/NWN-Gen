@@ -1,11 +1,14 @@
 # Content pack status
 
-See `tools/README.md` and `USAGE.md` ("Procedural dungeons") for the tile-dungeon route:
-`nwndgen --recipe` generates fresh layouts per seed in C. It builds geometry and transitions only
-(no creatures, scripts or objective yet) and has not been game-loaded.
+`nwndgen --recipe` generates fresh layouts per seed (see `USAGE.md` and `tools/README.md`). With the shipped `assets/roster.txt` and
+`assets/scripts/` it also places creatures, a boss with a key, a vault and a relic, scenery, and a journal chain. Creatures, objective and
+journal were confirmed working in game by the author; the corridor kit and doors are built but not yet game-tested.
 
-**There is no playable content pack yet.** Nothing in this repository is a
-playable NWN1:EE adventure.
+What this repository ships: `roster.txt` (three themes: goblins, kobolds, undead, using stock NWN blueprints by resref only) and
+`scripts/` (`scel_enter`, `scel_acquire` as `.nss` source plus compiled `.ncs`). No game data is included; tile packs and templates are
+generated from your own install by `nwnpack`.
+
+The rest of this file concerns the older `--templates` room-swap mode, which has no shipped content pack.
 
 `build/fixtool fixture` builds a **format-test fixture only**: a synthetic base
 `.mod` and room-variant ERFs whose GFF payloads are structurally valid but hold
