@@ -69,7 +69,7 @@ typedef struct {
 } roster;
 
 /* Inputs the spawn planner needs besides the roster. */
-typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen, loot_amount, dressing, corridor_dressing, locks, ambush, traps, levers, patrols, encounters, reactions; } spawn_cfg; /* loot_amount: 0 mid, 1 low, 2 high; dressing, corridor_dressing, locks, ambush and traps: 0 off, 1 low, 2 mid, 3 high; levers: 0 off, 1 on; patrols and encounters: 0 off, 1 low, 2 mid, 3 high; reactions: 0 off, 1 on */
+typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen, loot_amount, dressing, corridor_dressing, locks, ambush, traps, levers, patrols, encounters, reactions, one_hp; } spawn_cfg; /* loot_amount: 0 mid, 1 low, 2 high; dressing, corridor_dressing, locks, ambush and traps: 0 off, 1 low, 2 mid, 3 high; levers: 0 off, 1 on; patrols and encounters: 0 off, 1 low, 2 mid, 3 high; reactions: 0 off, 1 on */
 
 /* A spawn marker: kind is one of C (creature) B (boss) T (boss with 1 hit point, boss_only runs) V (vault)
  * K (key item) R (relic item) D (decor prop) L (light) X (lootable container) P (floor trap, recipe key traps) E (lever, recipe key levers). */

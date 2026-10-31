@@ -74,7 +74,7 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     size_t pos = 0;
     int line = 0, seen_head = 0;
     unsigned have = 0; /* bitmask of single-use keys */
-    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144, H_DRESS = 524288, H_CDRESS = 1048576, H_LOCKS = 2097152, H_AMBUSH = 4194304, H_TRAPS = 8388608, H_LEVERS = 16777216, H_PATROLS = 33554432, H_ENCOUNTERS = 67108864, H_REACTIONS = 134217728 };
+    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144, H_DRESS = 524288, H_CDRESS = 1048576, H_LOCKS = 2097152, H_AMBUSH = 4194304, H_TRAPS = 8388608, H_LEVERS = 16777216, H_PATROLS = 33554432, H_ENCOUNTERS = 67108864, H_REACTIONS = 134217728, H_ONEHP = 268435456 };
 
     memset(r, 0, sizeof *r);
     while (pos < len) {
@@ -192,6 +192,11 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             else if (!strcmp(rest, "mid")) r->encounters = 2;
             else if (!strcmp(rest, "high")) r->encounters = 3;
             else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: encounters must be off, low, mid or high", line); return -1; }
+        } else if (!strcmp(buf, "one_hp")) {
+            if (have & H_ONEHP) { set_err(err, "recipe line %d: 'one_hp' given twice", line); return -1; }
+            have |= H_ONEHP;
+            if (!strcmp(rest, "on")) r->one_hp = 1;
+            else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: one_hp must be on or off", line); return -1; }
         } else if (!strcmp(buf, "reactions")) {
             if (have & H_REACTIONS) { set_err(err, "recipe line %d: 'reactions' given twice", line); return -1; }
             have |= H_REACTIONS;
@@ -343,6 +348,10 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     }
     if (r->traps && !(have & H_ROSTER)) {
         set_err(err, "recipe: traps needs roster and scripts");
+        return -1;
+    }
+    if (r->one_hp && !(have & H_ROSTER)) {
+        set_err(err, "recipe: one_hp needs roster and scripts");
         return -1;
     }
     if ((r->patrols || r->encounters || r->reactions) && !(have & H_ROSTER)) {

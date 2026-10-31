@@ -101,6 +101,7 @@ typedef struct {
     int has_spawn, theme;             /* roster in use and the theme picked for this seed */
     char hench[6][17];                /* henchmen that join the first player (resrefs), chosen by spawn_plan */
     int nhench;
+    int one_hp;                       /* recipe key one_hp: the scripts give every hostile creature they create 1 hit point (module variable scel_hp1) */
     int enc_n;                        /* encounters: pool of creature resrefs for random encounters (0 = recipe key encounters is off) */
     char enc_pool[16][17];
     int rea_n;                        /* reactions: pool of creature resrefs for reinforcements and the boss's call for help (0 = recipe key reactions is off) */

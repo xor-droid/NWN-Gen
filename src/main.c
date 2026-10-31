@@ -318,6 +318,7 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.patrols = c->r.patrols;
         sc.encounters = c->r.encounters;
         sc.reactions = c->r.reactions;
+        sc.one_hp = c->r.one_hp;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -664,6 +665,8 @@ int main(int argc, char **argv)
                         append(&manifest, &mlen, &mcap, "patrols.%s=patrols %d\n", c->d.area[s].resref, np);
                     }
                 }
+                if (c->r.one_hp)
+                    append(&manifest, &mlen, &mcap, "one_hp=on\n");
                 if (c->r.reactions) {
                     append(&manifest, &mlen, &mcap, "reactions=on\n");
                     append(&manifest, &mlen, &mcap, "reactions_algorithm=%s\n", REACTIONS_ALGORITHM_VERSION);

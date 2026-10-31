@@ -70,6 +70,8 @@ encounters off
 
 # Optional: the dungeon answers the player (death alerts, vault reinforcements, the boss calls for help); off (default) or on.
 reactions off
+# Test aid: on gives every creature the scripts create (not henchmen) 1 hit point. Needs roster and scripts.
+one_hp off
 
 # Optional run defaults. The command-line options of the same name override them.
 seed 12345

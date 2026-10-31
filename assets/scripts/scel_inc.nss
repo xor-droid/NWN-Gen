@@ -4,6 +4,13 @@
 // Ambush groups (recipe key ambush): scel_gc<g> member count, scel_gi<g>_<k> member marker index, scel_ga<g> anchor location,
 // scel_gx<g> sprung by a chest, scel_go<g> that chest, scel_gf<g> already sprung, scel_ng number of groups.
 
+// Recipe key one_hp (module variable scel_hp1): every hostile creature the scripts create has 1 hit point. Henchmen are not passed through here.
+void ScelOneHp(object oCreature)
+{
+    if (GetIsObjectValid(oCreature) && GetLocalInt(GetModule(), "scel_hp1"))
+        SetCurrentHitPoints(oCreature, 1);
+}
+
 // Items and gold the generator assigned to marker n. Droppable, so they land in the corpse loot like the key does.
 void GiveSpawnLoot(object oCreature, object oArea, int n)
 {
@@ -15,6 +22,7 @@ void GiveSpawnLoot(object oCreature, object oArea, int n)
     string sKey = GetLocalString(oArea, "scel_k" + IntToString(n));
     if (!GetIsObjectValid(oCreature))
         return;
+    ScelOneHp(oCreature);
     if (nWeak)
     {
         SetCurrentHitPoints(oCreature, 1);
@@ -185,6 +193,7 @@ int ScelSpawnNear(object oPC, int nPool, string sPre, int nGroup, string sMsg)
                 for (k = 0; k < nGroup; k++)
                 {
                     object oC = CreateObject(OBJECT_TYPE_CREATURE, GetLocalString(GetModule(), sPre + IntToString(1 + Random(nPool))), lAt);
+                    ScelOneHp(oC);
                     if (GetIsObjectValid(oC))
                         AssignCommand(oC, ActionAttack(oPC));
                 }
@@ -336,6 +345,7 @@ void BossCall(object oArea)
     for (k = 0; k < GetLocalInt(oMod, "scel_rg"); k++)
     {
         object oC = CreateObject(OBJECT_TYPE_CREATURE, GetLocalString(oMod, "scel_r" + IntToString(1 + Random(nPool))), GetLocation(oBoss));
+        ScelOneHp(oC);
         if (GetIsObjectValid(oC) && GetIsObjectValid(oPC))
             AssignCommand(oC, ActionAttack(oPC));
     }

@@ -177,6 +177,7 @@ levers off                        optional: off (default) or on, needs locks, se
 patrols off                       optional: off (default), low, mid or high, see Patrols
 encounters off                    optional: off (default), low, mid or high, see Random encounters
 reactions off                     optional: off (default) or on, see Reactions
+one_hp off                       optional test aid: off (default) or on, every creature the scripts create has 1 hit point
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions

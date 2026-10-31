@@ -1202,6 +1202,7 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
 
     /* Random encounters (recipe key `encounters`): the pool is the theme's minions and standard creatures at or under the regular CR cap, so nothing
      * stronger than an ordinary room creature turns up; the numbers are fixed by the level and the party size. Nothing here draws random numbers. */
+    d->one_hp = sc->one_hp;
     d->rea_n = d->enc_n = 0;
     if (sc->reactions && !sc->boss_only && !sc->loot_test) { /* reactions (recipe key `reactions`): the same kind of pool and group size as the encounters */
         int role;

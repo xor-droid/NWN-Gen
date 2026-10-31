@@ -989,6 +989,8 @@ static int build_ifo(const gff *in, const recipe *r, const dungeon *d, uint64_t 
             TRY(add_var(s, nm, 1, d->hench[i], 0, err));
         }
     }
+    if (d->one_hp)
+        TRY(add_var(s, "scel_hp1", 0, NULL, 1, err));
     if (d->rea_n) { /* reactions: the pool the reinforcement scripts read */
         char nm[24];
         TRY(add_var(s, "scel_rc", 0, NULL, d->rea_n, err));
