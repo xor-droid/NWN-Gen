@@ -872,7 +872,8 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
             (p->weak && add_var(w, "scel_weak", 0, NULL, 1, err)) ||
             (p->keytag[0] && (add_var(w, "scel_key", 1, p->keytag, 0, err) || add_var(w, "scel_keybp", 1, p->keybp, 0, err))) || (p->lockdc && add_var(w, "scel_lockdc", 0, NULL, p->lockdc, err)) || (p->amb && add_var(w, "scel_amb", 0, NULL, p->amb, err)) ||
             ((p->kind == 'P' || p->trapdc) && add_var(w, "scel_trap", 0, NULL, p->trap, err)) || (p->trapdc && add_var(w, "scel_trapdc", 0, NULL, p->trapdc, err)) ||
-            (p->gate && (snprintf(tag, sizeof tag, "DOOR_%s_%d", U, p->gate), add_var(w, "scel_gate", 1, tag, 0, err)))) {
+            (p->gate && (snprintf(tag, sizeof tag, "DOOR_%s_%d", U, p->gate), add_var(w, "scel_gate", 1, tag, 0, err))) ||
+            (p->nrt && add_var(w, "scel_rt", 0, NULL, ((p->rt[0][0] * 256 + p->rt[0][1]) * 256 + (p->nrt > 1 ? p->rt[1][0] : 0)) * 256 + (p->nrt > 1 ? p->rt[1][1] : 0), err))) {
             gff_struct_free(w);
             return -1;
         }
@@ -938,7 +939,12 @@ static int build_ifo(const gff *in, const recipe *r, const dungeon *d, uint64_t 
     int rc;
 
     if (d->has_spawn) {
+        const char *rest = gff_get_string(in->root, "Mod_OnPlayerRest");
         const char *cur = gff_get_string(in->root, "Mod_OnAcquirItem");
+        if (d->enc_n && rest && *rest && strcmp(rest, "scel_rest")) {
+            set_err(err, "base module already handles Mod_OnPlayerRest ('%s'); encounters needs that hook", rest);
+            return -1;
+        }
         if (cur && *cur && strcmp(cur, "scel_acquire")) {
             set_err(err, "base module already handles Mod_OnAcquirItem ('%s'); the objective needs that hook", cur);
             return -1;
@@ -954,6 +960,19 @@ static int build_ifo(const gff *in, const recipe *r, const dungeon *d, uint64_t 
     TRY(gff_set_void(s, "Mod_ID", id, 16, err));
     if (d->has_spawn)
         TRY(gff_set_string(s, "Mod_OnAcquirItem", GFF_RESREF, "scel_acquire", err));
+    if (d->enc_n) { /* random encounters: the rest hook and the pool and numbers the scripts read */
+        char nm[24];
+        TRY(gff_set_string(s, "Mod_OnPlayerRest", GFF_RESREF, "scel_rest", err));
+        TRY(add_var(s, "scel_ec", 0, NULL, d->enc_n, err));
+        for (i = 0; i < (size_t)d->enc_n; i++) {
+            snprintf(nm, sizeof nm, "scel_e%d", (int)i + 1);
+            TRY(add_var(s, nm, 1, d->enc_pool[i], 0, err));
+        }
+        TRY(add_var(s, "scel_eg", 0, NULL, d->enc_group, err));
+        TRY(add_var(s, "scel_ecap", 0, NULL, d->enc_cap, err));
+        TRY(add_var(s, "scel_epct", 0, NULL, d->enc_pct, err));
+        TRY(add_var(s, "scel_etick", 0, NULL, d->enc_tick, err));
+    }
     al = gff_set_list(s, "Mod_Area_list", err);
     if (!al)
         return -1;
@@ -1281,7 +1300,8 @@ int dungeon_build_ex(const recipe *r, const tilepack *tp, const gff *tpl_are, co
         int sprung = 0;
         size_t sq;
         for (sq = 0; sq < a->nsp; sq++)
-            sprung |= a->sp[sq].amb != 0;
+            sprung |= a->sp[sq].amb != 0 || a->sp[sq].nrt != 0;
+        sprung |= out->enc_n != 0;
         if (build_are(tpl_are, tp, &r->areas[i], &a->lay, a->tiles, out->has_spawn ? "scel_enter" : "", sprung ? "scel_beat" : "",
                       out->has_spawn ? &sc->ro->theme[out->theme] : NULL, &are, err) != 0) {
             gff_free(&are);

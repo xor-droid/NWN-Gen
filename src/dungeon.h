@@ -101,6 +101,9 @@ typedef struct {
     int has_spawn, theme;             /* roster in use and the theme picked for this seed */
     char hench[6][17];                /* henchmen that join the first player (resrefs), chosen by spawn_plan */
     int nhench;
+    int enc_n;                        /* encounters: pool of creature resrefs for random encounters (0 = recipe key encounters is off) */
+    char enc_pool[16][17];
+    int enc_group, enc_cap, enc_pct, enc_tick; /* creatures per group, encounters per area, percent chance when a player rests, quiet heartbeats before an unprompted one */
     uint8_t *jrl;                     /* module.jrl when has_spawn */
     size_t njrl;
     uint8_t *ifo;                     /* edited module.ifo */

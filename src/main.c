@@ -129,10 +129,12 @@ static void append(char **buf, size_t *len, size_t *cap, const char *fmt, ...)
 /* Scripts the objective needs: area OnEnter spawns from the markers, module OnAcquireItem drives the journal. */
 static const struct { const char *name; uint16_t type; } SCRIPT_FILES[] = {
     {"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS},
-    {"scel_use", RES_NSS}, {"scel_use", RES_NCS}, {"scel_beat", RES_NSS}, {"scel_beat", RES_NCS}}; /* the last four only with recipe key ambush */
-#define N_SCRIPT_FILES 8
+    {"scel_use", RES_NSS}, {"scel_use", RES_NCS}, {"scel_beat", RES_NSS}, {"scel_beat", RES_NCS},
+    {"scel_rest", RES_NSS}, {"scel_rest", RES_NCS}}; /* scel_use and scel_beat only with recipe keys ambush, levers or patrols, scel_rest only with encounters */
+#define N_SCRIPT_FILES 10
 #define N_BASE_SCRIPTS 4
-#define SCRIPTS_FOR(r) ((r)->ambush || (r)->levers ? N_SCRIPT_FILES : N_BASE_SCRIPTS)
+#define N_USE_SCRIPTS 8
+#define SCRIPTS_FOR(r) ((r)->encounters ? N_SCRIPT_FILES : (r)->ambush || (r)->levers || (r)->patrols ? N_USE_SCRIPTS : N_BASE_SCRIPTS)
 
 typedef struct {
     recipe r;
@@ -313,6 +315,8 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.ambush = c->r.ambush;
         sc.traps = c->r.traps;
         sc.levers = c->r.levers;
+        sc.patrols = c->r.patrols;
+        sc.encounters = c->r.encounters;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -649,6 +653,20 @@ int main(int argc, char **argv)
                         spawn_trap_counts(&c->d.area[s], &nf, &nc);
                         append(&manifest, &mlen, &mcap, "traps.%s=floor %d, chests %d\n", c->d.area[s].resref, nf, nc);
                     }
+                }
+                if (c->r.patrols) {
+                    append(&manifest, &mlen, &mcap, "patrols=%s\n", c->r.patrols == 1 ? "low" : c->r.patrols == 2 ? "mid" : "high");
+                    append(&manifest, &mlen, &mcap, "patrols_algorithm=%s\n", PATROLS_ALGORITHM_VERSION);
+                    for (s = 0; s < c->d.n; s++) {
+                        int np;
+                        spawn_patrol_counts(&c->d.area[s], &np);
+                        append(&manifest, &mlen, &mcap, "patrols.%s=patrols %d\n", c->d.area[s].resref, np);
+                    }
+                }
+                if (c->r.encounters) {
+                    append(&manifest, &mlen, &mcap, "encounters=%s\n", c->r.encounters == 1 ? "low" : c->r.encounters == 2 ? "mid" : "high");
+                    append(&manifest, &mlen, &mcap, "encounters_algorithm=%s\n", ENCOUNTERS_ALGORITHM_VERSION);
+                    append(&manifest, &mlen, &mcap, "encounters_config=pool %d, group %d, cap %d, rest %d, quiet %d\n", c->d.enc_n, c->d.enc_group, c->d.enc_cap, c->d.enc_pct, c->d.enc_tick);
                 }
                 if (c->r.levers) {
                     append(&manifest, &mlen, &mcap, "levers=on\n");

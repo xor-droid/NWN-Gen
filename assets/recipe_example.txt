@@ -62,6 +62,12 @@ traps off
 # Optional: turn one door per area into a gate that a lever in an earlier room opens; off (default) or on. Needs locks and the roster's lever line.
 levers off
 
+# Optional: a few room creatures walk a short route inside their room; off (default), low, mid or high.
+patrols off
+
+# Optional: random encounters at play time (when resting, and after a long quiet spell); off (default), low, mid or high.
+encounters off
+
 # Optional run defaults. The command-line options of the same name override them.
 seed 12345
 party_size 1

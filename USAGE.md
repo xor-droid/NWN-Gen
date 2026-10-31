@@ -174,6 +174,8 @@ locks off                         optional: off (default), low, mid or high, nee
 ambush off                        optional: off (default), low, mid or high, see Ambush
 traps off                         optional: off (default), low, mid or high, see Traps
 levers off                        optional: off (default) or on, needs locks, see Levers and gates
+patrols off                       optional: off (default), low, mid or high, see Patrols
+encounters off                    optional: off (default), low, mid or high, see Random encounters
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions
@@ -318,6 +320,25 @@ using it unlocks and opens the gate once ("Somewhere a gate grinds open."). The 
 and that the lever can be reached from the arrival point without passing a gate or keyed door whose own opener is still out of reach (the same flood fill as for keys). Own RNG domain `nwndgen/levers/1`, algorithm id `levers/1`, run after the traps; the manifest records `levers=on`, `levers_algorithm=` and `levers.<area>=gates N`, the summary prints
 `levers` per area. Generated and validated; **not yet confirmed in game** (open points: whether the lever is usable and its animation, that using it unlocks and opens the gate, that the gate really refuses lockpicking, and henchmen and the gate).
 
+
+#### Patrols (same `roster`, recipe key `patrols`)
+
+`patrols off|low|mid|high` (default `off`, needs `roster` and `scripts`) makes a few plain room creatures walk instead of standing still: low gives one patrol in half the areas, mid one per area, high two. A patrol is an ordinary planned creature that gets one or two extra route cells in its own room;
+the area heartbeat (`scel_beat`, every 6 seconds while a player is in the area) sends it to the next cell of its route whenever it is idle (not fighting, not already walking or waiting) and has it wait a few seconds there. A creature never leaves its room, so nothing in `locks` changes. Never in the quiet arrival room or the boss room, never a key carrier, an ambush member or a loot_test creature; a route cell is the middle of a full-floor cell of the room clear of doors,
+arrival and transition points, floor traps and other markers. Nothing is added or removed: creature counts, CR, XP and loot do not change. `scel_enter` registers the patrols from the marker variable `scel_rt` (packed cells). `dgcheck` checks that the creature is plain, that every route cell lies in the creature's own room (flood fill over floor cells that never crosses a door cell) and holds no trap, and that the area runs the heartbeat exactly when it has a patrol, an ambush group or encounters.
+Own RNG domain `nwndgen/patrols/1`, algorithm id `patrols/1`, drawn after the levers; the manifest records `patrols=`, `patrols_algorithm=` and `patrols.<area>=patrols N`, the summary prints `patrols` per area. Generated and validated; **not yet confirmed in game** (open points: that the nudges do not fight the stock creature AI, and that patrols look natural).
+
+#### Random encounters (same `roster`, recipe key `encounters`)
+
+`encounters off|low|mid|high` (default `off`, needs `roster` and `scripts`; independent of `patrols`) lets a group of the dungeon's own creatures turn up while you play. Two triggers, both rolled at play time with `Random()`, so they are the one part of a dungeon that is not decided by the seed:
+(1) when a player starts to rest (module `OnPlayerRest`, script `scel_rest`) there is a 15, 30 or 50 in 100 chance (low, mid, high); (2) the area heartbeat counts the heartbeats in which the first player in the area has no living enemy within 20 m, and after 200, 120 or 70 of them in a row (about 20, 12 or 7 minutes) it rolls an encounter and starts counting again.
+A group is 2 creatures for a party of 1-2, 3 for 3-4 and 4 for more; each is drawn from a pool the generator stores in module variables: the theme's minions and standard creatures at or under the regular CR cap (the same cap as ordinary room creatures, so nothing stronger than a normal room creature appears). The group appears at the spot of a planned creature
+10-45 m away from the player (never a hidden ambush spot, never within 12 m of a living boss, never in the arrival room as it has no creatures) and goes for the player, with "Something stirs in the dark..." text. At most 2, 4 or 6 encounters per area (low, mid, high). Encounter creatures carry nothing: the stock random treasure is already switched off by `scel_enter`, so the loot economy is unchanged; kill XP is the normal one.
+`dgcheck` checks the module variables (`scel_ec` pool size 1-16 and `scel_e1..` resrefs that are minions or standard creatures of the module's theme, group 2-4, cap 1-8, chance 1-100, quiet 20-1000), and that `OnPlayerRest` runs `scel_rest` exactly when the pool exists and that every area runs the heartbeat. Own algorithm id `encounters/1` (no RNG at generation time); the manifest records `encounters=`, `encounters_algorithm=`
+and `encounters_config=pool N, group G, cap C, rest P, quiet T`. The base module must not already handle `OnPlayerRest`. Generated and validated; the run-time rolls cannot be tested without the game: **not yet confirmed in game** (open points: that the rest event fires with the expected type, that the group finds its way to the player, and the right feel of the chances).
+(Wandering respawn of killed room creatures, which an earlier plan listed, is covered by encounters and is not a separate feature.)
+
+#### Level-scaled loot (same `roster`)
 
 `loot_amount low|mid|high` (recipe key, default `mid`, needs `roster` and `scripts`) scales how much creatures carry without changing which creature gets what:
 the random draws are the same, only the item chances and the gold are scaled afterwards, so `mid` is byte-identical to leaving the key out and a creature that carries

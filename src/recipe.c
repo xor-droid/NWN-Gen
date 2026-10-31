@@ -74,7 +74,7 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     size_t pos = 0;
     int line = 0, seen_head = 0;
     unsigned have = 0; /* bitmask of single-use keys */
-    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144, H_DRESS = 524288, H_CDRESS = 1048576, H_LOCKS = 2097152, H_AMBUSH = 4194304, H_TRAPS = 8388608, H_LEVERS = 16777216 };
+    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144, H_DRESS = 524288, H_CDRESS = 1048576, H_LOCKS = 2097152, H_AMBUSH = 4194304, H_TRAPS = 8388608, H_LEVERS = 16777216, H_PATROLS = 33554432, H_ENCOUNTERS = 67108864 };
 
     memset(r, 0, sizeof *r);
     while (pos < len) {
@@ -178,6 +178,20 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             else if (!strcmp(rest, "mid")) r->traps = 2;
             else if (!strcmp(rest, "high")) r->traps = 3;
             else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: traps must be off, low, mid or high", line); return -1; }
+        } else if (!strcmp(buf, "patrols")) {
+            if (have & H_PATROLS) { set_err(err, "recipe line %d: 'patrols' given twice", line); return -1; }
+            have |= H_PATROLS;
+            if (!strcmp(rest, "low")) r->patrols = 1;
+            else if (!strcmp(rest, "mid")) r->patrols = 2;
+            else if (!strcmp(rest, "high")) r->patrols = 3;
+            else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: patrols must be off, low, mid or high", line); return -1; }
+        } else if (!strcmp(buf, "encounters")) {
+            if (have & H_ENCOUNTERS) { set_err(err, "recipe line %d: 'encounters' given twice", line); return -1; }
+            have |= H_ENCOUNTERS;
+            if (!strcmp(rest, "low")) r->encounters = 1;
+            else if (!strcmp(rest, "mid")) r->encounters = 2;
+            else if (!strcmp(rest, "high")) r->encounters = 3;
+            else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: encounters must be off, low, mid or high", line); return -1; }
         } else if (!strcmp(buf, "levers")) {
             if (have & H_LEVERS) { set_err(err, "recipe line %d: 'levers' given twice", line); return -1; }
             have |= H_LEVERS;
@@ -324,6 +338,10 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     }
     if (r->traps && !(have & H_ROSTER)) {
         set_err(err, "recipe: traps needs roster and scripts");
+        return -1;
+    }
+    if ((r->patrols || r->encounters) && !(have & H_ROSTER)) {
+        set_err(err, "recipe: patrols and encounters need roster and scripts");
         return -1;
     }
     if (r->levers && (!(have & H_ROSTER) || !r->locks)) {

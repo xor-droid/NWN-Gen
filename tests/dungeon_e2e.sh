@@ -471,6 +471,74 @@ badruns "levers without locks" --recipe "$FX/r_lvnolocks.txt"
 badruns "levers given twice" --recipe "$FX/r_lvdup.txt"
 { cat "$FX/recipe_kit_lock_high.txt"; echo "levers high"; } > "$FX/r_lvbad.txt"
 badruns "levers high" --recipe "$FX/r_lvbad.txt"
+# patrols off|low|mid|high: a few room creatures walk a route inside their room (scel_beat nudges them); nothing is added, so the totals do not change
+mkdir -p "$T/pt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed 12345 --output "$T/pt/off.mod" --manifest "$T/pt/off.txt" >/dev/null || bad "patrols baseline generate"
+! grep -q 'patrols' "$T/pt/off.txt" && ok || bad "patrols appears in the manifest without the recipe key"
+npat=0; ptmod=
+for lvl in low mid high; do
+  { cat "$FX/recipe_kit_corr.txt"; echo "patrols $lvl"; } > "$FX/recipe_kit_patrol_$lvl.txt"
+  for seed in 1 2 3 4 5 6 7 8 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_patrol_$lvl.txt" --seed $seed --output "$T/pt/${lvl}_$seed.mod" --manifest "$T/pt/${lvl}_$seed.txt" >"$T/pt/${lvl}_$seed.out" || { bad "patrols $lvl generate seed $seed"; continue; }
+    grep -q "^patrols=$lvl\$" "$T/pt/${lvl}_$seed.txt" && grep -q '^patrols_algorithm=patrols/1$' "$T/pt/${lvl}_$seed.txt" && grep -q '^patrols\.[a-z_0-9]*=patrols [0-9]*$' "$T/pt/${lvl}_$seed.txt" && grep -q '^script.scel_beat.ncs_sha256=' "$T/pt/${lvl}_$seed.txt" && ok || bad "patrols $lvl manifest seed $seed"
+    grep -q 'patrols (patrols '"$lvl"')' "$T/pt/${lvl}_$seed.out" && ok || bad "patrols $lvl summary seed $seed"
+    dgk --roster "$FX/roster_corr_test.txt" "$T/pt/${lvl}_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck patrols $lvl seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+    eval "$(sed -n 's/^patrols\.[a-z_0-9]*=patrols \([0-9]*\)$/npat=$((npat + \1));/p' "$T/pt/${lvl}_$seed.txt" | paste -sd' ')"
+    grep -q 'patrols [1-9]' "$T/pt/${lvl}_$seed.txt" && ptmod="$T/pt/${lvl}_$seed.mod"
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed $seed --output "$T/pt/plain_$seed.mod" --force >"$T/pt/plain_$seed.out" 2>&1
+    [ "$(grep -E 'creatures [0-9]+|total CR' "$T/pt/${lvl}_$seed.out")" = "$(grep -E 'creatures [0-9]+|total CR' "$T/pt/plain_$seed.out")" ] && ok || bad "patrols $lvl changed the creature totals, seed $seed"
+  done
+done
+[ "$npat" -gt 0 ] && ok || bad "patrols made no patrol over 27 modules"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_patrol_high.txt" --seed 12345 --output "$T/pt/again.mod" >/dev/null && cmp -s "$T/pt/again.mod" "$T/pt/high_12345.mod" && ok || bad "patrols build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "patrols off"; } > "$FX/recipe_kit_patrol_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_patrol_off.txt" --seed 12345 --output "$T/pt/offkey.mod" >/dev/null && cmp -s "$T/pt/offkey.mod" "$T/pt/off.mod" && ok || bad "patrols off differs from leaving the key out"
+# negative proof: markers that lose their route while the area still runs the heartbeat script
+if [ -n "$ptmod" ]; then
+  LC_ALL=C sed 's/scel_rt/scel_rx/g' "$ptmod" > "$T/pt/noroute.mod"
+  dgk --roster "$FX/roster_corr_test.txt" "$T/pt/noroute.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted a heartbeat script without patrols" || { grep -q "OnHeartbeat is" "$T/dg.txt" && ok || bad "dgcheck patrol message: $(head -3 "$T/dg.txt")"; }
+else bad "patrols: no module with a patrol to run the negative proof on"; fi
+{ cat "$FX/recipe_kit.txt"; echo "patrols high"; } > "$FX/r_pnoroster.txt"
+badruns "patrols without roster" --recipe "$FX/r_pnoroster.txt"
+{ cat "$FX/recipe_kit_patrol_high.txt"; echo "patrols low"; } > "$FX/r_pdup.txt"
+badruns "patrols given twice" --recipe "$FX/r_pdup.txt"
+{ cat "$FX/recipe_kit_corr.txt"; echo "patrols lots"; } > "$FX/r_pbad.txt"
+badruns "patrols lots" --recipe "$FX/r_pbad.txt"
+# encounters off|low|mid|high: random encounters while playing (rest hook and quiet-spell timer); the generator only writes the pool and the numbers
+mkdir -p "$T/en"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed 12345 --output "$T/en/off.mod" --manifest "$T/en/off.txt" >/dev/null || bad "encounters baseline generate"
+! grep -q 'encounters' "$T/en/off.txt" && ok || bad "encounters appears in the manifest without the recipe key"
+enmod=
+for lvl in low mid high; do
+  { cat "$FX/recipe_kit_corr.txt"; echo "encounters $lvl"; } > "$FX/recipe_kit_enc_$lvl.txt"
+  for seed in 1 2 3 4 5 6 7 8 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_enc_$lvl.txt" --seed $seed --output "$T/en/${lvl}_$seed.mod" --manifest "$T/en/${lvl}_$seed.txt" >"$T/en/${lvl}_$seed.out" || { bad "encounters $lvl generate seed $seed"; continue; }
+    grep -q "^encounters=$lvl\$" "$T/en/${lvl}_$seed.txt" && grep -q '^encounters_algorithm=encounters/1$' "$T/en/${lvl}_$seed.txt" && grep -q '^encounters_config=pool [1-9][0-9]*, group [234], cap [1-9], rest [1-9][0-9]*, quiet [1-9][0-9]*$' "$T/en/${lvl}_$seed.txt" && grep -q '^script.scel_rest.ncs_sha256=' "$T/en/${lvl}_$seed.txt" && ok || bad "encounters $lvl manifest seed $seed"
+    grep -q 'encounters (encounters '"$lvl"')' "$T/en/${lvl}_$seed.out" && ok || bad "encounters $lvl summary seed $seed"
+    dgk --roster "$FX/roster_corr_test.txt" "$T/en/${lvl}_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck encounters $lvl seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+    enmod="$T/en/${lvl}_$seed.mod"
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed $seed --output "$T/en/plain_$seed.mod" --force >"$T/en/plain_$seed.out" 2>&1
+    [ "$(grep -E 'creatures [0-9]+|total CR' "$T/en/${lvl}_$seed.out")" = "$(grep -E 'creatures [0-9]+|total CR' "$T/en/plain_$seed.out")" ] && ok || bad "encounters $lvl changed the creature totals, seed $seed"
+  done
+done
+grep -q 'cap 2, rest 15, quiet 200' "$T/en/low_12345.txt" && grep -q 'cap 4, rest 30, quiet 120' "$T/en/mid_12345.txt" && grep -q 'cap 6, rest 50, quiet 70' "$T/en/high_12345.txt" && ok || bad "encounters numbers per level"
+for ps in 2 3; do
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_enc_high.txt" --seed 12345 --party-size $ps --output "$T/en/p$ps.mod" --manifest "$T/en/p$ps.txt" >/dev/null && grep -q "group $ps," "$T/en/p$ps.txt" && ok || bad "encounters group size for a party of $ps"
+done
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_enc_high.txt" --seed 12345 --output "$T/en/again.mod" >/dev/null && cmp -s "$T/en/again.mod" "$T/en/high_12345.mod" && ok || bad "encounters build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "encounters off"; } > "$FX/recipe_kit_enc_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_enc_off.txt" --seed 12345 --output "$T/en/offkey.mod" >/dev/null && cmp -s "$T/en/offkey.mod" "$T/en/off.mod" && ok || bad "encounters off differs from leaving the key out"
+# negative proofs: a missing number, and a rest hook without the pool
+LC_ALL=C sed 's/scel_etick/scel_etic9/g' "$enmod" > "$T/en/notick.mod"
+dgk --roster "$FX/roster_corr_test.txt" "$T/en/notick.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted encounters without scel_etick" || { grep -q "scel_etick must be an int" "$T/dg.txt" && ok || bad "dgcheck encounter message: $(head -3 "$T/dg.txt")"; }
+LC_ALL=C sed 's/scel_ec\([^a-z]\)/scel_ed\1/' "$enmod" > "$T/en/nopool.mod"
+dgk --roster "$FX/roster_corr_test.txt" "$T/en/nopool.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted a rest hook without the pool" || { grep -q "Mod_OnPlayerRest is" "$T/dg.txt" && ok || bad "dgcheck rest hook message: $(head -3 "$T/dg.txt")"; }
+{ cat "$FX/recipe_kit.txt"; echo "encounters high"; } > "$FX/r_enoroster.txt"
+badruns "encounters without roster" --recipe "$FX/r_enoroster.txt"
+{ cat "$FX/recipe_kit_enc_high.txt"; echo "encounters low"; } > "$FX/r_edup.txt"
+badruns "encounters given twice" --recipe "$FX/r_edup.txt"
+{ cat "$FX/recipe_kit_corr.txt"; echo "encounters lots"; } > "$FX/r_ebad.txt"
+badruns "encounters lots" --recipe "$FX/r_ebad.txt"
 # negative proofs: the validator re-reads the tileset, so a lie about edges, door slots or doors must show
 KSET=tileset_kit_edge.set; sed 's/^Top=Corridor/Top=Bridge/' "$FX/tileset_kit.set" > "$FX/$KSET"
 checkfail "dgcheck rejects wrong corridor edges" dgk "$T/k/k1.mod"

@@ -8,6 +8,7 @@
 // scel_lockdc (it starts locked, pick DC) -- recipe key locks. Locked doors themselves are written into the area GIT.
 // scel_amb (recipe key ambush): a creature marker with it stays hidden until its group is sprung (see scel_inc, scel_use, scel_beat);
 // a container marker with it springs that group when opened.
+// scel_rt (recipe key patrols): a creature marker with it walks a route inside its room (see scel_inc, scel_beat).
 // SPE_ lever (recipe key levers): scel_gate = tag of the gate door it opens.
 // SPP_ trap (recipe key traps): scel_trap = TRAP_BASE_TYPE, scel_trapdc = detect and disarm DC; a container marker with scel_trapdc starts trapped.
 // A creature or boss marker may carry local variables set by the generator: scel_loot / scel_loot2 (item blueprints the
@@ -98,6 +99,7 @@ void main()
             SetLocalInt(oArea, "scel_tt" + IntToString(nMark), GetLocalInt(o, "scel_trap"));
             SetLocalInt(oArea, "scel_td" + IntToString(nMark), GetLocalInt(o, "scel_trapdc"));
             SetLocalString(oArea, "scel_gt" + IntToString(nMark), GetLocalString(o, "scel_gate"));
+            SetLocalInt(oArea, "scel_rt" + IntToString(nMark), GetLocalInt(o, "scel_rt"));
             if (GetLocalString(o, "scel_loot") != "" || GetLocalInt(o, "scel_gold") > 0)
                 bLoot = TRUE;
             nMark++;
@@ -105,6 +107,7 @@ void main()
         o = GetNextObjectInArea(oArea, OBJECT_TYPE_WAYPOINT);
     }
 
+    SetLocalInt(oArea, "scel_nm", nMark); // ScelEncounter walks the markers again
     // The generator decided every drop; keep the stock random treasure from adding to it.
     if (bLoot)
         SetLocalInt(oMod, "X2_L_NOTREASURE", TRUE);
@@ -130,7 +133,11 @@ void main()
                 SetLocalLocation(oArea, "scel_ga" + sG, lLoc);
         }
         else if (sKind == "SPC_")
-            GiveSpawnLoot(CreateObject(OBJECT_TYPE_CREATURE, sBp, lLoc), oArea, i);
+        {
+            object oCreature = CreateObject(OBJECT_TYPE_CREATURE, sBp, lLoc);
+            GiveSpawnLoot(oCreature, oArea, i);
+            RegisterPatrol(oCreature, oArea, i, lLoc); // recipe key patrols: it walks a route (scel_beat)
+        }
         else if (sKind == "SPX_")
         {
             // Lootable container; scel_lockdc (recipe key locks) starts it locked, pickable at that DC. Not plot, so it can be bashed.

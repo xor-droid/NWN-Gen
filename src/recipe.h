@@ -20,6 +20,8 @@
  *   ambush off|low|mid|high           (optional, default off) hide some room creatures until a chest in their room is opened or a player comes near (low: one group in half the areas, mid: one per area, high: up to two); the creatures are the ones already planned, so totals do not change; needs roster and scripts
  *   traps off|low|mid|high             (optional, default off) hidden floor traps in rooms and corridors (low 1, mid 3, high 5 per area) and trapped chests (0, 25, 40 in 100), the strength grows with the character level; every trap can be found and disarmed; needs roster and scripts
  *   levers on|off                      (optional, default off) turn a keyless locked door of each area into a gate that a lever in a room before it opens (the gate can still be bashed); needs locks and the roster's lever line
+ *   patrols off|low|mid|high           (optional, default off) some room creatures walk a short route inside their room instead of standing still (low: one in half the areas, mid: one per area, high: two); needs roster and scripts
+ *   encounters off|low|mid|high        (optional, default off) random encounters at play time: a group of the dungeon's own creatures turns up when a player rests (15, 30, 50 in 100) or after a long quiet spell, at most 2, 4 or 6 times per area; needs roster and scripts
  *   seed N                              (optional) run defaults: unsigned 64-bit seed, party size 1-32, character levels 1-40;
  *   party_size N                         the command-line options of the same name override them
  *   min_level N | max_level N
@@ -62,6 +64,8 @@ typedef struct {
     int locks;         /* locks off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; locked doors, keys and locked chests (needs roster, scripts, corridors kit and doors) */
     int ambush;        /* ambush off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; hidden creature groups sprung by a chest or by proximity (needs roster and scripts) */
     int traps;         /* traps off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; floor traps and trapped containers (needs roster and scripts) */
+    int patrols;       /* patrols off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; room creatures that walk a route (needs roster and scripts) */
+    int encounters;    /* encounters off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; random encounters while playing (needs roster and scripts) */
     int levers;        /* levers on|off: 1 turns some keyless locked doors into gates that a lever in an earlier room opens (needs roster, scripts and locks) */
     int has_seed, has_party, has_min_lvl, has_max_lvl; /* run defaults given in the recipe; the command line overrides them */
     uint64_t run_seed;

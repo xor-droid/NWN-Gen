@@ -213,6 +213,7 @@ typedef struct {
     char key[40], keybp[17]; /* a creature carrying a door key: its tag and blueprint */
     int lockdc;              /* a container that starts locked: the pick DC */
     int amb;                 /* ambush group id (creature in the group, or the container that springs it), 0 = none */
+    int rt;                  /* a patrolling creature (kind C): the packed route cells x1,y1,x2,y2 (8 bits each), 0 = none */
     char gate[48];           /* a lever (kind E): tag of the gate door it opens */
     int trap, trapdc;        /* a floor trap (kind P) or a trapped container: TRAP_BASE_TYPE number and detect/disarm DC; -1 = absent */
     int gold;
@@ -518,18 +519,58 @@ static int trap_family_ok(int fam)
     return 0;
 }
 
+/* Patrols (recipe key patrols): the creature is a plain one (no key, not hidden in an ambush group, not weak), and both route cells are full-floor cells of
+ * the same room (reachable from its own cell over full-floor cells without crossing a door cell), with no door, floor trap or other creature's route on them. */
+static void check_patrols(area_info *ai, size_t na, const marker *mk, size_t nm)
+{
+    size_t a, i, j;
+    for (a = 0; a < na; a++) {
+        int n = ai[a].w * ai[a].h, c;
+        unsigned char *blocked = calloc((size_t)(n ? n : 1), 1), *seen = calloc((size_t)(n ? n : 1), 1);
+        const gff_field *dl = ai[a].git.root ? gff_find(ai[a].git.root, "Door List") : NULL;
+        for (c = 0; c < n; c++) blocked[c] = !ai[a].floor[c];
+        for (j = 0; dl && j < dl->nlist; j++) {
+            int cx = (int)(gff_get_float(dl->list[j], "X", -1) / 10.0), cy = (int)(gff_get_float(dl->list[j], "Y", -1) / 10.0);
+            if (cx >= 0 && cy >= 0 && cx < ai[a].w && cy < ai[a].h) blocked[cy * ai[a].w + cx] = 1;
+        }
+        for (i = 0; i < nm; i++) {
+            int k, pts[2][2];
+            if (mk[i].area != (int)a || mk[i].rt <= 0) continue;
+            if (mk[i].key[0] || mk[i].amb) BAD("%s: patrol creature %s at (%d,%d) carries a key or hides in an ambush group", ai[a].name, mk[i].bp, mk[i].cx, mk[i].cy);
+            pts[0][0] = mk[i].rt >> 24;
+            pts[0][1] = (mk[i].rt >> 16) & 255;
+            pts[1][0] = (mk[i].rt >> 8) & 255;
+            pts[1][1] = mk[i].rt & 255;
+            flood(&ai[a], mk[i].cy * ai[a].w + mk[i].cx, blocked, seen);
+            for (k = 0; k < 2; k++) {
+                if (k == 1 && !pts[1][0] && !pts[1][1]) break;
+                if (pts[k][0] < 0 || pts[k][1] < 0 || pts[k][0] >= ai[a].w || pts[k][1] >= ai[a].h || !seen[pts[k][1] * ai[a].w + pts[k][0]])
+                    BAD("%s: patrol route cell (%d,%d) of %s at (%d,%d) is not in the creature's room", ai[a].name, pts[k][0], pts[k][1], mk[i].bp, mk[i].cx, mk[i].cy);
+                else if (pts[k][0] == mk[i].cx && pts[k][1] == mk[i].cy) BAD("%s: patrol route cell (%d,%d) is the creature's own cell", ai[a].name, pts[k][0], pts[k][1]);
+                for (j = 0; j < nm; j++)
+                    if (mk[j].area == (int)a && mk[j].kind == 'P' && mk[j].cx == pts[k][0] && mk[j].cy == pts[k][1])
+                        BAD("%s: patrol route cell (%d,%d) holds a floor trap", ai[a].name, pts[k][0], pts[k][1]);
+            }
+        }
+        free(blocked);
+        free(seen);
+    }
+}
+
 /* Ambush groups (recipe key ambush). Group ids run 1..n in an area; a group has 2 or 3 plain creatures (no key carrier) and at most one
  * container, which stands near them (the same room) and springs the group when opened; a group without a container is sprung by proximity.
  * Only areas with a group run the heartbeat script, and the extra scripts ship in the module exactly then. */
-static void check_ambush(area_info *ai, size_t na, const marker *mk, size_t nm)
+static void check_ambush(area_info *ai, size_t na, const marker *mk, size_t nm, int enc)
 {
     size_t a, i;
     for (a = 0; a < na; a++) {
-        int maxg = 0, g;
-        for (i = 0; i < nm; i++)
+        int maxg = 0, g, pat = 0;
+        for (i = 0; i < nm; i++) {
             if (mk[i].area == (int)a && mk[i].amb > maxg) maxg = mk[i].amb;
-        if ((maxg > 0) != !strcmp(ai[a].on_beat, "scel_beat") || (*ai[a].on_beat && strcmp(ai[a].on_beat, "scel_beat")))
-            BAD("%s: OnHeartbeat is '%s' but the area has %d ambush groups", ai[a].name, ai[a].on_beat, maxg);
+            pat += mk[i].area == (int)a && mk[i].rt > 0;
+        }
+        if ((maxg > 0 || pat > 0 || enc) != !strcmp(ai[a].on_beat, "scel_beat") || (*ai[a].on_beat && strcmp(ai[a].on_beat, "scel_beat")))
+            BAD("%s: OnHeartbeat is '%s' but the area has %d ambush groups, %d patrols and encounters are %s", ai[a].name, ai[a].on_beat, maxg, pat, enc ? "on" : "off");
         for (g = 1; g <= maxg; g++) {
             int members = 0, chests = 0;
             size_t cm = 0;
@@ -555,10 +596,11 @@ static void check_ambush(area_info *ai, size_t na, const marker *mk, size_t nm)
 
 static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, const tileset *ts, resman *rm, const roster *ro)
 {
-    static const struct { const char *name; uint16_t type; } SC[8] = {{"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS},
-                                                                      {"scel_use", RES_NSS}, {"scel_use", RES_NCS}, {"scel_beat", RES_NSS}, {"scel_beat", RES_NCS}};
+    static const struct { const char *name; uint16_t type; } SC[10] = {{"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS},
+                                                                      {"scel_use", RES_NSS}, {"scel_use", RES_NCS}, {"scel_beat", RES_NSS}, {"scel_beat", RES_NCS},
+                                                                       {"scel_rest", RES_NSS}, {"scel_rest", RES_NCS}};
     const char *acq = gff_get_string(ifo->root, "Mod_OnAcquirItem");
-    int nweak = 0, spawn = erf_find(m, "module", RES_JRL) != NULL || (acq && *acq), cnt[128] = {0}, k, ncreat = 0, ndecor = 0, nlight = 0, ncont = 0, theme = -1;
+    int nweak = 0, spawn = erf_find(m, "module", RES_JRL) != NULL || (acq && *acq), cnt[128] = {0}, k, ncreat = 0, ndecor = 0, nlight = 0, ncont = 0, theme = -1, enc_on = 0;
     size_t a, q, nm = 0, i, j;
     marker *mk = NULL, *boss = NULL, *key = NULL, *vault = NULL, *relic = NULL;
     gff jrl;
@@ -569,8 +611,12 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
     for (a = 0; a < na; a++)
         if (strcmp(ai[a].on_enter, "scel_enter")) BAD("%s: OnEnter is '%s', expected scel_enter", ai[a].name, ai[a].on_enter);
     if (!acq || strcmp(acq, "scel_acquire")) BAD("Mod_OnAcquirItem is '%s', expected scel_acquire", acq ? acq : "");
-    for (k = 0; k < 8; k++) {
-        if (k >= 4) { /* scel_use and scel_beat ship with recipe keys ambush and levers; they are required when an area runs the heartbeat, and scel_use also when it has a lever */
+    for (k = 0; k < 10; k++) {
+        if (k >= 8) { /* scel_rest ships, and is required, exactly when the module hooks OnPlayerRest */
+            const char *pr = gff_get_string(ifo->root, "Mod_OnPlayerRest");
+            if (!pr || !*pr) continue;
+            if (strcmp(pr, "scel_rest")) BAD("Mod_OnPlayerRest is '%s', expected scel_rest", pr);
+        } else if (k >= 4) { /* scel_use and scel_beat ship with recipe keys ambush and levers; they are required when an area runs the heartbeat, and scel_use also when it has a lever */
             size_t b, w;
             int want = 0;
             for (b = 0; b < na; b++) {
@@ -628,6 +674,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
             p->trap = -1;
             p->trapdc = 0;
             p->gate[0] = '\0';
+            p->rt = 0;
             {
                 const char *sv = NULL;
                 int64_t iv = 0;
@@ -659,6 +706,9 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
                 ty = var_get(wl->list[q], "scel_trapdc", &sv, &iv);
                 if (ty == 1 && (p->kind == 'P' || p->kind == 'X') && iv >= 12 && iv <= 30) p->trapdc = (int)iv;
                 else if (ty) BAD("%s: marker %s has a malformed scel_trapdc", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_rt", &sv, &iv);
+                if (ty == 1 && p->kind == 'C' && iv >= 16777216 && iv <= 2147483647) p->rt = (int)iv;
+                else if (ty) BAD("%s: marker %s has a malformed scel_rt", ai[a].name, t);
                 ty = var_get(wl->list[q], "scel_gate", &sv, &iv);
                 if (ty == 3 && sv && p->kind == 'E' && !strncmp(sv, "DOOR_", 5) && strlen(sv) < sizeof p->gate) strcpy(p->gate, sv);
                 else if (ty) BAD("%s: marker %s has a malformed scel_gate", ai[a].name, t);
@@ -741,8 +791,14 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         if (any && walk_components(&tmp, 1) != walk_components(&ai[a], 1)) BAD("%s: scenery splits the walkable area into several regions", ai[a].name);
         free(tmp.open);
     }
+    {
+        const char *esv = NULL;
+        int64_t eiv = 0;
+        enc_on = var_get(ifo->root, "scel_ec", &esv, &eiv) != 0;
+    }
     check_locks(ifo, ai, na, mk, nm, ro);
-    check_ambush(ai, na, mk, nm);
+    check_ambush(ai, na, mk, nm, enc_on);
+    check_patrols(ai, na, mk, nm);
     /* roster consistency: one theme supplies every creature; objective items match */
     if (ro && boss && cnt['B'] == 1) {
         size_t t;
@@ -794,6 +850,37 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         if (key && strcmp(key->bp, ro->key)) BAD("key marker %s != roster key %s", key->bp, ro->key);
         if (vault && strcmp(vault->bp, ro->vault)) BAD("vault marker %s != roster vault %s", vault->bp, ro->vault);
         if (relic && strcmp(relic->bp, ro->relic)) BAD("relic marker %s != roster relic %s", relic->bp, ro->relic);
+    }
+    /* encounters (recipe key encounters): module variables scel_ec / scel_e1.. name the creatures that may turn up (the theme's minions and standard creatures),
+     * scel_eg the group size, scel_ecap the encounters per area, scel_epct the chance when a player rests, scel_etick the quiet heartbeats; OnPlayerRest runs scel_rest */
+    {
+        const char *sv = NULL, *pr = gff_get_string(ifo->root, "Mod_OnPlayerRest");
+        int64_t iv = 0, ne = 0;
+        int ek, ty = var_get(ifo->root, "scel_ec", &sv, &iv);
+        if (!!ty != !!(pr && *pr)) BAD("Mod_OnPlayerRest is '%s' but scel_ec is %s", pr ? pr : "", ty ? "set" : "absent");
+        if (ty) {
+            ne = iv;
+            if (ty != 1 || ne < 1 || ne > 16) BAD("scel_ec must be an int 1-16 (got %lld)", (long long)ne);
+            else {
+                struct { const char *nm; int lo, hi; } NUM[4] = {{"scel_eg", 2, 4}, {"scel_ecap", 1, 8}, {"scel_epct", 1, 100}, {"scel_etick", 20, 1000}};
+                for (ek = 0; ek < 4; ek++) {
+                    ty = var_get(ifo->root, NUM[ek].nm, &sv, &iv);
+                    if (ty != 1 || iv < NUM[ek].lo || iv > NUM[ek].hi) BAD("%s must be an int %d-%d", NUM[ek].nm, NUM[ek].lo, NUM[ek].hi);
+                }
+                for (ek = 1; ek <= (int)ne; ek++) {
+                    char enm[24];
+                    int role, f = 0;
+                    snprintf(enm, sizeof enm, "scel_e%d", ek);
+                    ty = var_get(ifo->root, enm, &sv, &iv);
+                    if (ty != 3 || !sv || !resref_ok(sv)) { BAD("%s is missing or not a resref string", enm); continue; }
+                    for (role = ROLE_MINION; ro && theme >= 0 && role <= ROLE_STANDARD && !f; role++) {
+                        int ecr;
+                        f = in_roster_role(&ro->theme[theme], role, sv, &ecr);
+                    }
+                    if (ro && theme >= 0 && !f) BAD("encounter creature %s is not a minion or standard creature of theme '%s'", sv, ro->theme[theme].id);
+                }
+            }
+        }
     }
     /* henchmen: module variables scel_hn / scel_h1.. name stock henchman blueprints (<roster family>_NN, level NN+3) */
     {

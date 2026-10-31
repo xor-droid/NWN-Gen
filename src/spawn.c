@@ -70,6 +70,7 @@ static void put(dungeon_area *a, char kind, const char *bp, int cx, int cy, int 
     p->amb = 0;
     p->trap = p->trapdc = 0;
     p->gate = 0;
+    p->nrt = 0;
 }
 
 /* Boss in the middle of the last room of the last area, vault chest on a free neighbouring cell. */
@@ -1086,6 +1087,85 @@ void spawn_lever_counts(const dungeon_area *a, int *gates)
 }
 
 
+/* Patrols (recipe key `patrols`): a few plain room creatures walk between their own spot and one or two other cells of the same room instead of standing
+ * still (scel_beat nudges them along the route while a player is in the area). Never in the quiet arrival room, the boss room, never a key carrier, an
+ * ambush member or a loot_test creature; a route cell is the middle of a full-floor cell of the room, clear of doors, arrival and transition points, floor traps and
+ * every other marker, so a patrol cannot walk onto a trap or through a doorway. A creature stays in its room, so the key holders of `locks` stay where the
+ * solvability proof expects them and nothing is added: CR, XP and loot totals do not change. low: one patrol in half the areas, mid: one per area,
+ * high: two. Own RNG domain, drawn after the levers. */
+static void plan_patrols(dungeon_area *a, int level, uint64_t seed)
+{
+    const layout *l = &a->lay;
+    sm64 rng;
+    int boss_room = -1, want, cand[SPAWN_PT_MAX], nc = 0, k;
+    size_t q;
+
+    sm64_seed(&rng, domain_seed("nwndgen/patrols/1", 18, seed, a->resref));
+    for (q = 0; q < a->nsp; q++)
+        if (a->sp[q].kind == 'B' || a->sp[q].kind == 'T')
+            boss_room = room_at(l, a->sp[q].cx, a->sp[q].cy);
+    for (q = 0; q < a->nsp; q++) {
+        const spawn_pt *p = &a->sp[q];
+        int rm = p->kind == 'C' && !p->keytag[0] && !p->amb && !p->weak ? room_at(l, p->cx, p->cy) : -1;
+        if (rm >= 1 && rm != boss_room)
+            cand[nc++] = (int)q;
+    }
+    want = level == 1 ? rnd(&rng, 2) : level == 2 ? 1 : 2;
+    for (k = 0; k < want && nc > 0; k++) {
+        int pick = rnd(&rng, nc), idx = cand[pick], room, x, y, nfar = 0, nnear = 0, nr;
+        int fcell[256][2], ncell[256][2], (*src)[2];
+        spawn_pt *p = &a->sp[idx];
+        cand[pick] = cand[--nc];
+        room = room_at(l, p->cx, p->cy);
+        for (y = l->room[room][1]; y < l->room[room][3]; y++)
+            for (x = l->room[room][0]; x < l->room[room][2]; x++) {
+                int ok = layout_full_floor(l, x, y) && !near_pair_cell(a, x, y) && (x != p->cx || y != p->cy);
+                for (q = 0; ok && q < a->ndoor; q++)
+                    ok = !(a->door[q].cx == x && a->door[q].cy == y);
+                for (q = 0; ok && q < a->nsp; q++) {
+                    const spawn_pt *m = &a->sp[q];
+                    int mx, my;
+                    if (m->cx != x || m->cy != y)
+                        continue;
+                    mx = m->custom ? m->xcm : 350 * m->ox;
+                    my = m->custom ? m->ycm : 350 * m->oy;
+                    ok = m->kind != 'P' && (abs(mx) >= 250 || abs(my) >= 250); /* the middle of the cell is free */
+                }
+                if (!ok)
+                    continue;
+                if (abs(x - p->cx) >= 2 || abs(y - p->cy) >= 2) {
+                    if (nfar < 256) { fcell[nfar][0] = x; fcell[nfar++][1] = y; }
+                } else if (nnear < 256) { ncell[nnear][0] = x; ncell[nnear++][1] = y; }
+            }
+        src = nfar ? fcell : ncell;
+        nr = nfar ? nfar : nnear;
+        if (!nr)
+            continue;
+        {
+            int j = rnd(&rng, nr);
+            p->rt[0][0] = src[j][0];
+            p->rt[0][1] = src[j][1];
+            p->nrt = 1;
+            if (nr > 1 && rnd(&rng, 2)) { /* a second extra cell makes a triangle */
+                int j2 = rnd(&rng, nr - 1);
+                j2 += j2 >= j;
+                p->rt[1][0] = src[j2][0];
+                p->rt[1][1] = src[j2][1];
+                p->nrt = 2;
+            }
+        }
+    }
+}
+
+void spawn_patrol_counts(const dungeon_area *a, int *patrols)
+{
+    size_t k;
+    *patrols = 0;
+    for (k = 0; k < a->nsp; k++)
+        *patrols += a->sp[k].nrt != 0;
+}
+
+
 int spawn_corridor_props(const dungeon_area *a)
 {
     size_t k;
@@ -1119,6 +1199,22 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
     sm64_seed(&trng, domain_seed("nwndgen/theme/1", 16, seed, module_tag));
     d->theme = eligible[rnd(&trng, ne)];
     th = &ro->theme[d->theme];
+
+    /* Random encounters (recipe key `encounters`): the pool is the theme's minions and standard creatures at or under the regular CR cap, so nothing
+     * stronger than an ordinary room creature turns up; the numbers are fixed by the level and the party size. Nothing here draws random numbers. */
+    d->enc_n = 0;
+    if (sc->encounters && !sc->boss_only && !sc->loot_test) {
+        static const int CAP[4] = {0, 2, 4, 6}, PCT[4] = {0, 15, 30, 50}, TICK[4] = {0, 200, 120, 70};
+        int role;
+        for (role = ROLE_MINION; role <= ROLE_STANDARD; role++)
+            for (t = 0; t < th->n[role]; t++)
+                if (th->e[role][t].cr <= rcap && d->enc_n < 16)
+                    strcpy(d->enc_pool[d->enc_n++], th->e[role][t].resref);
+        d->enc_group = sc->party <= 2 ? 2 : sc->party <= 4 ? 3 : 4;
+        d->enc_cap = CAP[sc->encounters];
+        d->enc_pct = PCT[sc->encounters];
+        d->enc_tick = TICK[sc->encounters];
+    }
 
     d->nhench = 0;
     if (sc->henchmen > 0) { /* N distinct stock families, each at the level nearest the recommended average */
@@ -1245,6 +1341,8 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
             plan_traps(a, sc->traps, seed, sc);
         if (sc->levers && sc->locks && !sc->boss_only && !sc->loot_test)
             plan_levers(a, ro, seed, sc);
+        if (sc->patrols && !sc->boss_only && !sc->loot_test)
+            plan_patrols(a, sc->patrols, seed);
         if (sc->loot_test)
             for (k = 0; k < a->nsp; k++)
                 a->sp[k].weak = a->sp[k].kind == 'C' || a->sp[k].kind == 'T';
