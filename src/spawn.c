@@ -69,6 +69,7 @@ static void put(dungeon_area *a, char kind, const char *bp, int cx, int cy, int 
     p->lockdc = 0;
     p->amb = 0;
     p->trap = p->trapdc = 0;
+    p->gate = 0;
 }
 
 /* Boss in the middle of the last room of the last area, vault chest on a free neighbouring cell. */
@@ -997,6 +998,94 @@ void spawn_trap_counts(const dungeon_area *a, int *floor, int *chests)
     }
 }
 
+/* Levers (recipe key `levers`, needs locks): one keyless locked door of the area (pick or bash), or if there is none an open door on link 1 or later, becomes a gate: it now needs a key tag that no
+ * item carries, so it cannot be picked, but still is not plot, so it can be bashed, and a lever standing in a room on the near side of it (rooms
+ * 1..i for a door on link i, so the way out of the arrival room is never the only place) unlocks and opens it. The lever stands on a corner spot (3.5 m) of a
+ * full-floor room cell, clear of doors, the arrival and transition points and every other marker. If the area has no keyless locked door, or no free spot, nothing changes.
+ * Own RNG domain, drawn after the traps. */
+static int near_pair_cell(const dungeon_area *a, int x, int y)
+{
+    int near = 0;
+    if (a->has_start)
+        near = (abs(a->pair_start[0] - x) <= 1 && abs(a->pair_start[1] - y) <= 1) || (abs(a->pair_start[2] - x) <= 1 && abs(a->pair_start[3] - y) <= 1);
+    if (a->has_prev)
+        near = near || (abs(a->pair_prev[0] - x) <= 1 && abs(a->pair_prev[1] - y) <= 1) || (abs(a->pair_prev[2] - x) <= 1 && abs(a->pair_prev[3] - y) <= 1);
+    if (a->has_next)
+        near = near || (abs(a->pair_next[0] - x) <= 1 && abs(a->pair_next[1] - y) <= 1) || (abs(a->pair_next[2] - x) <= 1 && abs(a->pair_next[3] - y) <= 1);
+    return near;
+}
+
+static void plan_levers(dungeon_area *a, const roster *ro, uint64_t seed, const spawn_cfg *sc)
+{
+    static const int SOX[4] = {-1, 1, -1, 1}, SOY[4] = {-1, -1, 1, 1};
+    typedef struct { int x, y, s; } spot;
+    const layout *l = &a->lay;
+    sm64 rng;
+    int avg = (int)(((long)sc->min_level + (long)sc->max_level) / 2), dl[8], dk[8], nd = 0, link, pick, room, x, y, s, nc = 0, want;
+    size_t q, m;
+    spot *cand;
+    spawn_pt *p;
+    dungeon_door *dr;
+
+    sm64_seed(&rng, domain_seed("nwndgen/levers/1", 17, seed, a->resref));
+    for (want = 1; want >= 0 && !nd; want--) /* a keyless locked door, else an open one on an eligible link (links 1 and up) */
+        for (link = 1; link < l->nlink; link++)
+            for (q = 0; q < a->ndoor && nd < 8; q++)
+                if (a->door[q].lock == want && door_on_link(a, q, link)) {
+                    dl[nd] = (int)q;
+                    dk[nd++] = link;
+                }
+    if (!nd || a->nsp >= SPAWN_PT_MAX)
+        return;
+    pick = rnd(&rng, nd);
+    cand = xcalloc((size_t)l->w * (size_t)l->h * 4, sizeof *cand);
+    for (room = 1; room <= dk[pick]; room++)
+        for (y = l->room[room][1]; y < l->room[room][3]; y++)
+            for (x = l->room[room][0]; x < l->room[room][2]; x++) {
+                int ok = layout_full_floor(l, x, y) && !near_pair_cell(a, x, y);
+                for (q = 0; q < a->ndoor && ok; q++)
+                    ok = !(a->door[q].cx == x && a->door[q].cy == y);
+                for (s = 0; ok && s < 4; s++) {
+                    int fx = 350 * SOX[s], fy = 350 * SOY[s], clear = 1;
+                    for (m = 0; m < a->nsp && clear; m++) {
+                        const spawn_pt *mk = &a->sp[m];
+                        if (mk->cx != x || mk->cy != y)
+                            continue;
+                        clear = abs((mk->custom ? mk->xcm : 350 * mk->ox) - fx) >= 250 || abs((mk->custom ? mk->ycm : 350 * mk->oy) - fy) >= 250;
+                    }
+                    if (clear) {
+                        cand[nc].x = x;
+                        cand[nc].y = y;
+                        cand[nc++].s = s;
+                    }
+                }
+            }
+    if (nc) {
+        spot c = cand[rnd(&rng, nc)];
+        int face = rnd(&rng, 8);
+        dr = &a->door[dl[pick]];
+        dr->lock = 3;
+        avg = avg < 1 ? 1 : avg;
+        dr->dc = 10 + avg < 12 ? 12 : 10 + avg > 30 ? 30 : 10 + avg; /* the gate stays lockable with a plausible DC like every locked door, although the key requirement stops picking */
+        snprintf(dr->keytag, sizeof dr->keytag, "GATE_%s_1", a->resref);
+        put(a, 'E', ro->lever, c.x, c.y, face);
+        p = &a->sp[a->nsp - 1];
+        p->ox = SOX[c.s];
+        p->oy = SOY[c.s];
+        p->gate = dl[pick] + 1;
+    }
+    free(cand);
+}
+
+void spawn_lever_counts(const dungeon_area *a, int *gates)
+{
+    size_t k;
+    *gates = 0;
+    for (k = 0; k < a->ndoor; k++)
+        *gates += a->door[k].lock == 3;
+}
+
+
 int spawn_corridor_props(const dungeon_area *a)
 {
     size_t k;
@@ -1014,6 +1103,10 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
     sm64 trng;
     const roster_theme *th;
 
+    if (sc->levers && !ro->lever[0]) {
+        set_err(err, "levers needs a lever line in the roster (a usable placeable such as plc_flrlever1)");
+        return -1;
+    }
     for (t = 0; t < ro->ntheme; t++)
         if (theme_ok(&ro->theme[t], rcap, bcap))
             eligible[ne++] = (int)t;
@@ -1150,6 +1243,8 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
             plan_ambush(a, sc->ambush, seed);
         if (sc->traps && !sc->boss_only && !sc->loot_test)
             plan_traps(a, sc->traps, seed, sc);
+        if (sc->levers && sc->locks && !sc->boss_only && !sc->loot_test)
+            plan_levers(a, ro, seed, sc);
         if (sc->loot_test)
             for (k = 0; k < a->nsp; k++)
                 a->sp[k].weak = a->sp[k].kind == 'C' || a->sp[k].kind == 'T';

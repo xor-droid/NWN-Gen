@@ -13,6 +13,7 @@
 #define LOCKS_ALGORITHM_VERSION "locks/1" /* locked doors, keys and locked chests, see plan_locks */
 #define AMBUSH_ALGORITHM_VERSION "ambush/1" /* hidden creature groups, see plan_ambush */
 #define TRAPS_ALGORITHM_VERSION "traps/1" /* floor traps and trapped containers, see plan_traps */
+#define LEVERS_ALGORITHM_VERSION "levers/1" /* gate doors opened by a lever, see plan_levers */
 #define HENCH_ALGORITHM_VERSION "hench/1" /* which stock henchmen join the first player, see spawn_plan */
 #define SPAWN_AREA_MAX 24 /* creatures per area, boss excluded */
 #define SPAWN_PT_MAX 192  /* markers per area: creatures, objective, scenery, room dressing */
@@ -31,6 +32,8 @@ void spawn_ambush_counts(const dungeon_area *a, int *groups, int *hidden, int *c
 int spawn_trap_tier(int avg_level);
 /* Traps of an area: floor traps and trapped containers. */
 void spawn_trap_counts(const dungeon_area *a, int *floor, int *chests);
+/* Gate doors of an area (recipe key levers). */
+void spawn_lever_counts(const dungeon_area *a, int *gates);
 /* Fills d->area[i].sp/nsp, d->theme. Fails if the roster has no theme with a boss under the cap. */
 int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *module_tag, char *err);
 

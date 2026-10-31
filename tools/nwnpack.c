@@ -899,6 +899,14 @@ static int cmd_roster_check(const char *root, const char *path)
                 free(b);
             }
     }
+    if (ro.lever[0] && rc_load(&rm, ro.lever, 2044, &g, &b, NULL) == 0) { /* the lever of recipe key levers: a usable placeable without inventory, not locked, plot or trapped */
+        if (!gff_get_int(g.root, "Useable", 0) || gff_get_int(g.root, "HasInventory", 0) || gff_get_int(g.root, "Locked", 0) || gff_get_int(g.root, "Plot", 0) || gff_get_int(g.root, "TrapFlag", 0))
+            RBAD("lever %s is not usable, or holds items, or is locked, plot or trapped", ro.lever);
+        rc_scripts(&rm, ro.lever, g.root, "On");
+        n++;
+        gff_free(&g);
+        free(b);
+    }
     for (i = 0; i < ro.ncprop; i++) { /* corridor scenery (corridorprop lines): inert like props */
         const char *nm = ro.cprop[i].resref;
         if (rc_load(&rm, nm, 2044, &g, &b, NULL) != 0) continue;

@@ -437,6 +437,40 @@ badruns "traps without roster" --recipe "$FX/r_tnoroster.txt"
 badruns "traps given twice" --recipe "$FX/r_tdup.txt"
 { cat "$FX/recipe_kit_corr.txt"; echo "traps lots"; } > "$FX/r_tbad.txt"
 badruns "traps lots" --recipe "$FX/r_tbad.txt"
+# levers on|off: one door per area becomes a gate that a lever in an earlier room opens (needs locks)
+mkdir -p "$T/lv"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_lock_high.txt" --seed 12345 --output "$T/lv/off.mod" --manifest "$T/lv/off.txt" >/dev/null || bad "levers baseline generate"
+! grep -q 'levers' "$T/lv/off.txt" && ok || bad "levers appears in the manifest without the recipe key"
+lgates=0; lvmod=
+for lvl in low mid high; do
+  { cat "$FX/recipe_kit_corr.txt"; echo "locks $lvl"; echo "levers on"; } > "$FX/recipe_kit_lever_$lvl.txt"
+  for seed in 1 2 3 4 5 6 7 8 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_lever_$lvl.txt" --seed $seed --output "$T/lv/${lvl}_$seed.mod" --manifest "$T/lv/${lvl}_$seed.txt" >"$T/lv/${lvl}_$seed.out" || { bad "levers $lvl generate seed $seed"; continue; }
+    grep -q '^levers=on$' "$T/lv/${lvl}_$seed.txt" && grep -q '^levers_algorithm=levers/1$' "$T/lv/${lvl}_$seed.txt" && grep -q '^levers\.[a-z_0-9]*=gates [0-9]*$' "$T/lv/${lvl}_$seed.txt" && grep -q '^script.scel_use.ncs_sha256=' "$T/lv/${lvl}_$seed.txt" && ok || bad "levers $lvl manifest seed $seed"
+    grep -q 'levers (levers on)' "$T/lv/${lvl}_$seed.out" && ok || bad "levers $lvl summary seed $seed"
+    dgk --roster "$FX/roster_corr_test.txt" "$T/lv/${lvl}_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck levers $lvl seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+    eval "$(sed -n 's/^levers\.[a-z_0-9]*=gates \([0-9]*\)$/lgates=$((lgates + \1));/p' "$T/lv/${lvl}_$seed.txt" | paste -sd' ')"
+    grep -q 'gates [1-9]' "$T/lv/${lvl}_$seed.txt" && lvmod="$T/lv/${lvl}_$seed.mod"
+    # the lever only changes a door and adds one marker: the creature totals equal the same seed without the key
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_lock_$lvl.txt" --seed $seed --output "$T/lv/plain_$seed.mod" --force >"$T/lv/plain_$seed.out" 2>&1
+    [ "$(grep -E 'creatures [0-9]+|total CR' "$T/lv/${lvl}_$seed.out")" = "$(grep -E 'creatures [0-9]+|total CR' "$T/lv/plain_$seed.out")" ] && ok || bad "levers $lvl changed the creature totals, seed $seed"
+  done
+done
+[ "$lgates" -gt 0 ] && ok || bad "levers made no gate over 27 modules"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_lever_high.txt" --seed 12345 --output "$T/lv/again.mod" >/dev/null && cmp -s "$T/lv/again.mod" "$T/lv/high_12345.mod" && ok || bad "levers build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "locks high"; echo "levers off"; } > "$FX/recipe_kit_lever_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_lever_off.txt" --seed 12345 --output "$T/lv/offkey.mod" >/dev/null && cmp -s "$T/lv/offkey.mod" "$T/lv/off.mod" && ok || bad "levers off differs from leaving the key out"
+# negative proof: a lever that loses the name of its gate, and so a gate without a lever
+if [ -n "$lvmod" ]; then
+  LC_ALL=C sed 's/scel_gate/scel_gatx/g' "$lvmod" > "$T/lv/nogate.mod"
+  dgk --roster "$FX/roster_corr_test.txt" "$T/lv/nogate.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted a lever without a gate" || { grep -q "names no gate door" "$T/dg.txt" && grep -q "opened by 0 levers" "$T/dg.txt" && ok || bad "dgcheck lever message: $(head -3 "$T/dg.txt")"; }
+else bad "levers: no module with a gate to run the negative proof on"; fi
+{ cat "$FX/recipe_kit_corr.txt"; echo "levers on"; } > "$FX/r_lvnolocks.txt"
+badruns "levers without locks" --recipe "$FX/r_lvnolocks.txt"
+{ cat "$FX/recipe_kit_lever_high.txt"; echo "levers off"; } > "$FX/r_lvdup.txt"
+badruns "levers given twice" --recipe "$FX/r_lvdup.txt"
+{ cat "$FX/recipe_kit_lock_high.txt"; echo "levers high"; } > "$FX/r_lvbad.txt"
+badruns "levers high" --recipe "$FX/r_lvbad.txt"
 # negative proofs: the validator re-reads the tileset, so a lie about edges, door slots or doors must show
 KSET=tileset_kit_edge.set; sed 's/^Top=Corridor/Top=Bridge/' "$FX/tileset_kit.set" > "$FX/$KSET"
 checkfail "dgcheck rejects wrong corridor edges" dgk "$T/k/k1.mod"

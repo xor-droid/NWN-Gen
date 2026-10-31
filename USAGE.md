@@ -173,6 +173,7 @@ corridor_dressing off              optional: off (default), low, mid or high, ne
 locks off                         optional: off (default), low, mid or high, needs corridors kit and doors, see Locks
 ambush off                        optional: off (default), low, mid or high, see Ambush
 traps off                         optional: off (default), low, mid or high, see Traps
+levers off                        optional: off (default) or on, needs locks, see Levers and gates
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions
@@ -217,6 +218,7 @@ nwndgen-roster 1
 vault plc_chest1                    locked chest holding the relic
 key nw_it_msmlmisc11                  non-stacking item the boss carries (renamed "Vault Key" by the script)
 relic nw_it_msmlmisc05              the objective item
+lever plc_flrlever1                  optional: a usable lever placeable, needed by the recipe key levers
 theme goblins Goblins               id, then the text used in the journal ("Goblins hold this place.")
 minion nw_goblina 0.25              role (minion|standard|elite|boss), UTC resref, CR (two decimals max)
 prop|light|container <utp resref> <weight>   scenery for the theme (optional, see Scenery below)
@@ -307,7 +309,15 @@ and the generic ones (clear of waypoints, triggers and the module entry, 2 m fro
 Own RNG domain `nwndgen/traps/1`, algorithm id `traps/1`, run after the ambush plan; without the key, or `off`, output is byte-identical. The summary prints `traps` per area and the manifest records `traps=`, `traps_algorithm=` and
 `traps.<area>=floor N, chests N`. Generated and validated; **not yet confirmed in game** (open points: whether the trap appears and can be found and disarmed, and the damage at low levels).
 
-#### Level-scaled loot (same `roster`)
+#### Levers and gates (same `roster`, recipe key `levers`)
+
+`levers on|off` (default `off`, needs `roster`, `scripts` and `locks`, and a `lever` line in the roster) turns one door per area into a gate. The gate is a keyless locked door of the area (a pick-or-bash lock from `locks`; if the area has none, a plain open door on link 1 or later) whose
+lock now names a key tag that no item carries, so it cannot be picked. A lever stands in one of the rooms on the near side of the gate (rooms 1 up to the gate's link, never the quiet arrival room) on a corner spot (3.5 m) of a floor cell, clear of doors, arrival and transition points and other markers;
+using it unlocks and opens the gate once ("Somewhere a gate grinds open."). The gate is not plot, so it can still be bashed and nothing can strand a party. Without the key, or `off`, output is byte-identical; the roster's `lever` line is only read when the key is on.
+`scel_enter` creates the lever from an `SPE_<lever>` marker (`scel_gate` = the gate door's tag) and attaches `scel_use` to its OnUsed event; `scel_use` and `scel_beat` ship whenever `ambush` or `levers` is on. `dgcheck` proves that every gate has exactly one lever, that the lever names a locked, bashable gate door of its own area,
+and that the lever can be reached from the arrival point without passing a gate or keyed door whose own opener is still out of reach (the same flood fill as for keys). Own RNG domain `nwndgen/levers/1`, algorithm id `levers/1`, run after the traps; the manifest records `levers=on`, `levers_algorithm=` and `levers.<area>=gates N`, the summary prints
+`levers` per area. Generated and validated; **not yet confirmed in game** (open points: whether the lever is usable and its animation, that using it unlocks and opens the gate, that the gate really refuses lockpicking, and henchmen and the gate).
+
 
 `loot_amount low|mid|high` (recipe key, default `mid`, needs `roster` and `scripts`) scales how much creatures carry without changing which creature gets what:
 the random draws are the same, only the item chances and the gold are scaled afterwards, so `mid` is byte-identical to leaving the key out and a creature that carries

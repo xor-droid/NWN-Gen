@@ -78,3 +78,23 @@ void ScelSetTrap(object oTrap, int nDc)
     SetTrapDisarmDC(oTrap, nDc);
     SetTrapOneShot(oTrap, TRUE);
 }
+
+// A lever (recipe key levers): the first pull unlocks and opens the gate door named by the lever's scel_gate local (its tag). Call it with the lever as OBJECT_SELF.
+void PullLever(object oLever, object oUser)
+{
+    object oDoor;
+    if (GetLocalInt(oLever, "scel_pulled"))
+        return;
+    SetLocalInt(oLever, "scel_pulled", TRUE);
+    PlayAnimation(ANIMATION_PLACEABLE_ACTIVATE);
+    oDoor = GetObjectByTag(GetLocalString(oLever, "scel_gate"));
+    if (GetIsObjectValid(oDoor))
+    {
+        SetLocked(oDoor, FALSE);
+        AssignCommand(oDoor, ActionOpenDoor(oDoor));
+        if (GetIsObjectValid(oUser))
+            FloatingTextStringOnCreature("Somewhere a gate grinds open.", oUser, FALSE);
+    }
+    else if (GetIsObjectValid(oUser))
+        FloatingTextStringOnCreature("The lever moves, but nothing answers.", oUser, FALSE);
+}

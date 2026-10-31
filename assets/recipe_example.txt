@@ -59,6 +59,9 @@ ambush off
 # Optional: hidden floor traps and trapped chests, strength by character level; off (default), low, mid or high.
 traps off
 
+# Optional: turn one door per area into a gate that a lever in an earlier room opens; off (default) or on. Needs locks and the roster's lever line.
+levers off
+
 # Optional run defaults. The command-line options of the same name override them.
 seed 12345
 party_size 1

@@ -90,8 +90,8 @@ int roster_parse(const char *text, size_t len, roster *ro, char *err)
             return bad(err, line, "key without a value");
         *sp = '\0';
         rest = sp + 1;
-        if (!strcmp(buf, "vault") || !strcmp(buf, "key") || !strcmp(buf, "relic")) {
-            char *dst = buf[0] == 'v' ? ro->vault : buf[0] == 'k' ? ro->key : ro->relic;
+        if (!strcmp(buf, "vault") || !strcmp(buf, "key") || !strcmp(buf, "relic") || !strcmp(buf, "lever")) {
+            char *dst = buf[0] == 'v' ? ro->vault : buf[0] == 'k' ? ro->key : buf[0] == 'l' ? ro->lever : ro->relic;
             if (*dst)
                 return bad(err, line, "key given twice");
             if (!resref_ok(rest))

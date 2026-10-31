@@ -70,7 +70,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     size_t nl2 = 0;
     char bossloot[2][17] = {"", ""};
     char bossbp[17] = "";
-    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount, r->dressing, r->corridor_dressing, r->locks, r->ambush, r->traps};
+    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount, r->dressing, r->corridor_dressing, r->locks, r->ambush, r->traps, r->levers};
 
     put(&b, "\n%s (seed %llu)\n", r->module_name, (unsigned long long)cfg->seed);
     if (cfg->min_level == cfg->max_level)
@@ -211,6 +211,11 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
                 int tf, tc;
                 spawn_trap_counts(ar, &tf, &tc);
                 put(&b, "    traps (traps %s): %d floor %s, %d trapped %s\n", r->traps == 1 ? "low" : r->traps == 2 ? "mid" : "high", tf, plural(tf, "trap", "traps"), tc, plural(tc, "container", "containers"));
+            }
+            if (r->levers) {
+                int lg;
+                spawn_lever_counts(ar, &lg);
+                put(&b, "    levers (levers on): %d %s\n", lg, plural(lg, "gate", "gates"));
             }
             if (r->ambush) {
                 int ag, ah, ac;

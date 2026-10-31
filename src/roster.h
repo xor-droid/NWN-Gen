@@ -5,6 +5,7 @@
 *   vault <utp resref>              locked chest that holds the relic
  *   key <uti resref>                item the boss carries; opens the vault
  *   relic <uti resref>              the objective item
+ *   lever <utp resref>              (optional) usable lever placeable (plc_flrlever1); used by the recipe key levers
  *   theme <id> <display name...>    starts a theme; the role lines below belong to it
  *   minion|standard|elite|boss <utc resref> <CR>      CR is decimal, at most two places (0.25)
  *   prop|light|container <utp resref> <weight>        scenery for the theme (weight 1-100, optional)
@@ -57,7 +58,7 @@ typedef struct {
 typedef struct {
     roster_theme theme[ROSTER_THEMES];
     size_t ntheme;
-    char vault[17], key[17], relic[17];
+    char vault[17], key[17], relic[17], lever[17]; /* lever: optional, a usable placeable for recipe key levers */
     char hench[6][14];             /* henchman family prefixes, see henchman above */
     size_t nhench;
     roster_entry rprop[RT_N][ROSTER_POOL]; /* roomprop lines by room type; .cr holds the weight */
@@ -68,10 +69,10 @@ typedef struct {
 } roster;
 
 /* Inputs the spawn planner needs besides the roster. */
-typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen, loot_amount, dressing, corridor_dressing, locks, ambush, traps; } spawn_cfg; /* loot_amount: 0 mid, 1 low, 2 high; dressing, corridor_dressing, locks, ambush and traps: 0 off, 1 low, 2 mid, 3 high */
+typedef struct { const roster *ro; unsigned party, min_level, max_level; int boss_only, loot_test, henchmen, loot_amount, dressing, corridor_dressing, locks, ambush, traps, levers; } spawn_cfg; /* loot_amount: 0 mid, 1 low, 2 high; dressing, corridor_dressing, locks, ambush and traps: 0 off, 1 low, 2 mid, 3 high; levers: 0 off, 1 on */
 
 /* A spawn marker: kind is one of C (creature) B (boss) T (boss with 1 hit point, boss_only runs) V (vault)
- * K (key item) R (relic item) D (decor prop) L (light) X (lootable container) P (floor trap, recipe key traps). */
+ * K (key item) R (relic item) D (decor prop) L (light) X (lootable container) P (floor trap, recipe key traps) E (lever, recipe key levers). */
 typedef struct {
     char kind; char bp[17]; int cx, cy, face; int ox, oy; /* tile corner offset: -1, 0 or 1 (3.5 m) */
     char loot[2][17];   /* items a creature or boss carries (empty = none), see loot in the roster */
@@ -82,6 +83,7 @@ typedef struct {
     int lockdc;         /* locks: a lootable container (X) that starts locked: the DC to pick it (0 = unlocked) */
     int amb;            /* ambush: group id (1..) of a creature that stays hidden until the group is sprung, or of the chest that springs it (0 = none) */
     int trap, trapdc;   /* traps: a trap marker (P) or a container that starts trapped (trapdc > 0): the TRAP_BASE_TYPE number and the detect and disarm DC */
+    int gate;           /* levers: a lever marker (E): the gate door it opens, as an index into the area's doors plus 1 */
 } spawn_pt;
 
 int roster_parse(const char *text, size_t len, roster *ro, char *err);

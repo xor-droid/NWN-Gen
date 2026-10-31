@@ -569,6 +569,16 @@ static void test_recipe(void)
         CHECK(RP(la) != 0 && strstr(err, "off, low, mid or high"));
         snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nambush low\nambush high\n", GOOD_RECIPE);
         CHECK(RP(la) != 0 && strstr(err, "twice"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridors kit\ndoors plain\ntemplate_door d.git\nlocks mid\nlevers on\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.levers == 1 && r.locks == 2);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridors kit\ndoors plain\ntemplate_door d.git\nlocks mid\nlevers off\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.levers == 0);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nlevers on\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "needs roster and scripts, and locks"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridors kit\ndoors plain\ntemplate_door d.git\nlocks mid\nlevers high\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "on or off"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ncorridors kit\ndoors plain\ntemplate_door d.git\nlocks mid\nlevers on\nlevers off\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "twice"));
         snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ntraps high\n", GOOD_RECIPE);
         CHECK(RP(la) == 0 && r.traps == 3);
         snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ntraps low\n", GOOD_RECIPE);
@@ -1176,6 +1186,10 @@ static void test_roster(void)
     BAD_ROSTER("theme a A\nminion m\n", "resref CR");
     BAD_ROSTER("theme a\n", "needs 'id name'");
     BAD_ROSTER("vault again\n", "given twice");
+    BAD_ROSTER("lever a\nlever b\n", "given twice");
+    BAD_ROSTER("lever A\n", "resref");
+    CHECK(parse_roster("nwndgen-roster 1\nvault v\nkey k\nrelic r\nlever plc_flrlever1\ntheme a A\nminion m 1\nboss b 1\n", &ro, err) == 0 && !strcmp(ro.lever, "plc_flrlever1"));
+    CHECK(parse_roster("nwndgen-roster 1\nvault v\nkey k\nrelic r\ntheme a A\nminion m 1\nboss b 1\n", &ro, err) == 0 && !ro.lever[0]);
     BAD_ROSTER("monster m 1\n", "unknown key");
     CHECK(parse_roster("nwndgen-roster 1\nvault v\nkey k\nrelic r\n", &ro, err) != 0 && strstr(err, "at least one theme"));
     CHECK(parse_roster("nwndgen-roster 1\nvault v\nkey k\nrelic k\ntheme a A\nminion m 1\nboss b 1\n", &ro, err) != 0 &&

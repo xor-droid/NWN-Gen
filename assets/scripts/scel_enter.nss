@@ -8,6 +8,7 @@
 // scel_lockdc (it starts locked, pick DC) -- recipe key locks. Locked doors themselves are written into the area GIT.
 // scel_amb (recipe key ambush): a creature marker with it stays hidden until its group is sprung (see scel_inc, scel_use, scel_beat);
 // a container marker with it springs that group when opened.
+// SPE_ lever (recipe key levers): scel_gate = tag of the gate door it opens.
 // SPP_ trap (recipe key traps): scel_trap = TRAP_BASE_TYPE, scel_trapdc = detect and disarm DC; a container marker with scel_trapdc starts trapped.
 // A creature or boss marker may carry local variables set by the generator: scel_loot / scel_loot2 (item blueprints the
 // creature carries) and scel_gold (gold pieces). Their presence turns off the stock random monster treasure (X2_L_NOTREASURE
@@ -96,6 +97,7 @@ void main()
             SetLocalInt(oArea, "scel_m" + IntToString(nMark), GetLocalInt(o, "scel_amb"));
             SetLocalInt(oArea, "scel_tt" + IntToString(nMark), GetLocalInt(o, "scel_trap"));
             SetLocalInt(oArea, "scel_td" + IntToString(nMark), GetLocalInt(o, "scel_trapdc"));
+            SetLocalString(oArea, "scel_gt" + IntToString(nMark), GetLocalString(o, "scel_gate"));
             if (GetLocalString(o, "scel_loot") != "" || GetLocalInt(o, "scel_gold") > 0)
                 bLoot = TRUE;
             nMark++;
@@ -153,6 +155,16 @@ void main()
                 SetLocalInt(oArea, "scel_gx" + IntToString(nAmb), TRUE);
                 SetLocalObject(oArea, "scel_go" + IntToString(nAmb), oBox);
                 SetEventScript(oBox, EVENT_SCRIPT_PLACEABLE_ON_OPEN, "scel_use");
+            }
+        }
+        else if (sKind == "SPE_")
+        {
+            // Lever (recipe key levers): usable; using it unlocks and opens the gate door whose tag is in scel_gate (see scel_use).
+            object oLever = CreateObject(OBJECT_TYPE_PLACEABLE, sBp, lLoc);
+            if (GetIsObjectValid(oLever))
+            {
+                SetLocalString(oLever, "scel_gate", GetLocalString(oArea, "scel_gt" + IntToString(i)));
+                SetEventScript(oLever, EVENT_SCRIPT_PLACEABLE_ON_USED, "scel_use");
             }
         }
         else if (sKind == "SPP_")

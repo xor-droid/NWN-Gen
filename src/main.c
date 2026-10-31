@@ -132,7 +132,7 @@ static const struct { const char *name; uint16_t type; } SCRIPT_FILES[] = {
     {"scel_use", RES_NSS}, {"scel_use", RES_NCS}, {"scel_beat", RES_NSS}, {"scel_beat", RES_NCS}}; /* the last four only with recipe key ambush */
 #define N_SCRIPT_FILES 8
 #define N_BASE_SCRIPTS 4
-#define SCRIPTS_FOR(r) ((r)->ambush ? N_SCRIPT_FILES : N_BASE_SCRIPTS)
+#define SCRIPTS_FOR(r) ((r)->ambush || (r)->levers ? N_SCRIPT_FILES : N_BASE_SCRIPTS)
 
 typedef struct {
     recipe r;
@@ -312,6 +312,7 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.locks = c->r.locks;
         sc.ambush = c->r.ambush;
         sc.traps = c->r.traps;
+        sc.levers = c->r.levers;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -647,6 +648,15 @@ int main(int argc, char **argv)
                         int nf, nc;
                         spawn_trap_counts(&c->d.area[s], &nf, &nc);
                         append(&manifest, &mlen, &mcap, "traps.%s=floor %d, chests %d\n", c->d.area[s].resref, nf, nc);
+                    }
+                }
+                if (c->r.levers) {
+                    append(&manifest, &mlen, &mcap, "levers=on\n");
+                    append(&manifest, &mlen, &mcap, "levers_algorithm=%s\n", LEVERS_ALGORITHM_VERSION);
+                    for (s = 0; s < c->d.n; s++) {
+                        int ng;
+                        spawn_lever_counts(&c->d.area[s], &ng);
+                        append(&manifest, &mlen, &mcap, "levers.%s=gates %d\n", c->d.area[s].resref, ng);
                     }
                 }
                 if (c->r.ambush) {

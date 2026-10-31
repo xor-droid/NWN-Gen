@@ -783,13 +783,13 @@ static void upper(char *dst, const char *src)
     dst[i] = '\0';
 }
 
-/* A locked door (recipe key locks): lockable, locked, pick DC; keyed doors also name the key's tag. Never plot, so it can always be bashed. */
+/* A locked door (recipe key locks): lockable, locked, pick DC; keyed doors and gates also name the key's tag. Never plot, so it can always be bashed. */
 static int lock_door(gff_struct *dr, const dungeon_door *dd, char *err)
 {
     return gff_set_int(dr, "Locked", GFF_BYTE, 1, err) || gff_set_int(dr, "Lockable", GFF_BYTE, 1, err) ||
            gff_set_int(dr, "OpenLockDC", GFF_BYTE, dd->dc, err) || gff_set_int(dr, "CloseLockDC", GFF_BYTE, dd->dc, err) ||
-           gff_set_int(dr, "KeyRequired", GFF_BYTE, dd->lock == 2, err) || gff_set_int(dr, "AutoRemoveKey", GFF_BYTE, 0, err) ||
-           gff_set_string(dr, "KeyName", GFF_STRING, dd->lock == 2 ? dd->keytag : "", err);
+           gff_set_int(dr, "KeyRequired", GFF_BYTE, dd->lock >= 2, err) || gff_set_int(dr, "AutoRemoveKey", GFF_BYTE, 0, err) ||
+           gff_set_string(dr, "KeyName", GFF_STRING, dd->lock >= 2 ? dd->keytag : "", err);
 }
 
 static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recipe *r, gff *git, gff *gic, char *err)
@@ -871,7 +871,8 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
             (p->gold && add_var(w, "scel_gold", 0, NULL, p->gold, err)) ||
             (p->weak && add_var(w, "scel_weak", 0, NULL, 1, err)) ||
             (p->keytag[0] && (add_var(w, "scel_key", 1, p->keytag, 0, err) || add_var(w, "scel_keybp", 1, p->keybp, 0, err))) || (p->lockdc && add_var(w, "scel_lockdc", 0, NULL, p->lockdc, err)) || (p->amb && add_var(w, "scel_amb", 0, NULL, p->amb, err)) ||
-            ((p->kind == 'P' || p->trapdc) && add_var(w, "scel_trap", 0, NULL, p->trap, err)) || (p->trapdc && add_var(w, "scel_trapdc", 0, NULL, p->trapdc, err))) {
+            ((p->kind == 'P' || p->trapdc) && add_var(w, "scel_trap", 0, NULL, p->trap, err)) || (p->trapdc && add_var(w, "scel_trapdc", 0, NULL, p->trapdc, err)) ||
+            (p->gate && (snprintf(tag, sizeof tag, "DOOR_%s_%d", U, p->gate), add_var(w, "scel_gate", 1, tag, 0, err)))) {
             gff_struct_free(w);
             return -1;
         }

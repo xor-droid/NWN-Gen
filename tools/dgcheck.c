@@ -213,6 +213,7 @@ typedef struct {
     char key[40], keybp[17]; /* a creature carrying a door key: its tag and blueprint */
     int lockdc;              /* a container that starts locked: the pick DC */
     int amb;                 /* ambush group id (creature in the group, or the container that springs it), 0 = none */
+    char gate[48];           /* a lever (kind E): tag of the gate door it opens */
     int trap, trapdc;        /* a floor trap (kind P) or a trapped container: TRAP_BASE_TYPE number and detect/disarm DC; -1 = absent */
     int gold;
 } marker;
@@ -259,7 +260,7 @@ static int in_roster_role(const roster_theme *t, int role, const char *bp, int *
 /* Blueprint must exist; creatures must be hostile (faction 1) and, with a roster, match its CR. */
 static void check_blueprint(resman *rm, const char *where, char kind, const char *bp, int roster_cr)
 {
-    uint16_t type = strchr("VDLX", kind) ? 2044 : (kind == 'C' || kind == 'B') ? 2027 : 2025;
+    uint16_t type = strchr("VDLXE", kind) ? 2044 : (kind == 'C' || kind == 'B') ? 2027 : 2025;
     uint8_t *b;
     size_t bl;
     gff g;
@@ -274,6 +275,7 @@ static void check_blueprint(resman *rm, const char *where, char kind, const char
         int inv = (int)gff_get_int(g.root, "HasInventory", 0);
         if ((kind == 'V' || kind == 'X') && inv != 1) BAD("%s: %s %s has no inventory", where, kind == 'V' ? "vault" : "container", bp);
         if ((kind == 'D' || kind == 'L') && (inv || gff_get_int(g.root, "Useable", 0))) BAD("%s: scenery %s is usable or holds items", where, bp);
+        if (kind == 'E' && (inv || !gff_get_int(g.root, "Useable", 0) || gff_get_int(g.root, "Locked", 0) || gff_get_int(g.root, "Plot", 0) || gff_get_int(g.root, "TrapFlag", 0))) BAD("%s: lever %s is not usable, or holds items, or is locked, plot or trapped", where, bp);
         if (kind == 'X' && (gff_get_int(g.root, "Locked", 0) || gff_get_int(g.root, "Plot", 0) || gff_get_int(g.root, "TrapFlag", 0))) BAD("%s: container %s is locked, plot or trapped", where, bp);
     }
     gff_free(&g);
@@ -431,7 +433,21 @@ static void check_locks(const gff *ifo, area_info *ai, size_t na, const marker *
             const gff_struct *d = dl->list[q];
             const char *kn = gff_get_string(d, "KeyName");
             int cx = (int)(gff_get_float(d, "X", -1) / 10.0), cy = (int)(gff_get_float(d, "Y", -1) / 10.0), found = 0;
+            int gate = kn && !strncmp(kn, "GATE_", 5);
             if (!gff_get_int(d, "Locked", 0) || !gff_get_int(d, "KeyRequired", 0) || !kn || !*kn || cx < 0 || cy < 0 || cx >= ai[a].w || cy >= ai[a].h) continue;
+            if (gate) { /* a gate: its "key" is a lever, exactly one marker names this door */
+                const char *dt = gff_get_string(d, "Tag");
+                for (i = 0; i < nm; i++)
+                    if (mk[i].area == (int)a && mk[i].kind == 'E' && dt && !strcmp(mk[i].gate, dt)) {
+                        if (!found++) hcell[nb] = mk[i].cy * ai[a].w + mk[i].cx;
+                    }
+                if (found != 1) BAD("%s: gate door %s is opened by %d levers", ai[a].name, dt ? dt : "", found);
+                else {
+                    dcell[nb] = cy * ai[a].w + cx;
+                    dq[nb++] = (int)q;
+                }
+                continue;
+            }
             for (i = 0; i < nm; i++)
                 if (mk[i].area == (int)a && mk[i].key[0] && !strcmp(mk[i].key, kn)) {
                     if (!found++) hcell[nb] = mk[i].cy * ai[a].w + mk[i].cx;
@@ -441,6 +457,16 @@ static void check_locks(const gff *ifo, area_info *ai, size_t na, const marker *
                 dcell[nb] = cy * ai[a].w + cx;
                 dq[nb++] = (int)q;
             }
+        }
+        for (i = 0; i < nm; i++) { /* every lever opens a locked gate door of its own area */
+            int ok = 0;
+            if (mk[i].area != (int)a || mk[i].kind != 'E') continue;
+            for (q = 0; q < nd; q++) {
+                const char *kn = gff_get_string(dl->list[q], "KeyName");
+                ok |= !strcmp(gff_get_string(dl->list[q], "Tag") ? gff_get_string(dl->list[q], "Tag") : "", mk[i].gate) && gff_get_int(dl->list[q], "Locked", 0) && gff_get_int(dl->list[q], "KeyRequired", 0) && kn && !strncmp(kn, "GATE_", 5) && !gff_get_int(dl->list[q], "Plot", 0);
+            }
+            if (!ok) BAD("%s: lever at (%d,%d) names %s, which is not a locked, bashable gate door of the area", ai[a].name, mk[i].cx, mk[i].cy, mk[i].gate);
+            if (ro && strcmp(mk[i].bp, ro->lever)) BAD("%s: lever %s is not the roster's lever %s", ai[a].name, mk[i].bp, ro->lever);
         }
         for (i = 0; i < nm; i++) {
             int f = 0;
@@ -544,10 +570,17 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         if (strcmp(ai[a].on_enter, "scel_enter")) BAD("%s: OnEnter is '%s', expected scel_enter", ai[a].name, ai[a].on_enter);
     if (!acq || strcmp(acq, "scel_acquire")) BAD("Mod_OnAcquirItem is '%s', expected scel_acquire", acq ? acq : "");
     for (k = 0; k < 8; k++) {
-        if (k >= 4) { /* scel_use and scel_beat ship with recipe key ambush; they are required when an area runs the heartbeat */
-            size_t b;
+        if (k >= 4) { /* scel_use and scel_beat ship with recipe keys ambush and levers; they are required when an area runs the heartbeat, and scel_use also when it has a lever */
+            size_t b, w;
             int want = 0;
-            for (b = 0; b < na; b++) want |= !strcmp(ai[b].on_beat, "scel_beat");
+            for (b = 0; b < na; b++) {
+                const gff_field *wl = ai[b].git.root ? gff_find(ai[b].git.root, "WaypointList") : NULL;
+                want |= !strcmp(ai[b].on_beat, "scel_beat");
+                for (w = 0; wl && k < 6 && w < wl->nlist; w++) {
+                    const char *wt = gff_get_string(wl->list[w], "Tag");
+                    want |= wt && !strncmp(wt, "SPE_", 4);
+                }
+            }
             if (!want) continue;
         }
         const erf_res *r = erf_find(m, SC[k].name, SC[k].type);
@@ -575,7 +608,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         for (q = 0; wl && q < wl->nlist; q++) {
             const char *t = gff_get_string(wl->list[q], "Tag");
             marker *p;
-            if (!t || strncmp(t, "SP", 2) || !t[2] || !strchr("CBTVKRDLXP", t[2]) || t[3] != '_') continue;
+            if (!t || strncmp(t, "SP", 2) || !t[2] || !strchr("CBTVKRDLXPE", t[2]) || t[3] != '_') continue;
             if (!resref_ok(t + 4)) { BAD("%s: marker %s has a bad blueprint resref", ai[a].name, t); continue; }
             mk = realloc(mk, (nm + 1) * sizeof *mk);
             p = &mk[nm++];
@@ -594,6 +627,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
             p->amb = 0;
             p->trap = -1;
             p->trapdc = 0;
+            p->gate[0] = '\0';
             {
                 const char *sv = NULL;
                 int64_t iv = 0;
@@ -625,6 +659,10 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
                 ty = var_get(wl->list[q], "scel_trapdc", &sv, &iv);
                 if (ty == 1 && (p->kind == 'P' || p->kind == 'X') && iv >= 12 && iv <= 30) p->trapdc = (int)iv;
                 else if (ty) BAD("%s: marker %s has a malformed scel_trapdc", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_gate", &sv, &iv);
+                if (ty == 3 && sv && p->kind == 'E' && !strncmp(sv, "DOOR_", 5) && strlen(sv) < sizeof p->gate) strcpy(p->gate, sv);
+                else if (ty) BAD("%s: marker %s has a malformed scel_gate", ai[a].name, t);
+                if (p->kind == 'E' && !p->gate[0]) BAD("%s: lever marker %s names no gate door", ai[a].name, t);
                 if (p->kind == 'P' && (p->trap < 0 || !p->trapdc || strcmp(p->bp, "trap"))) BAD("%s: trap marker %s lacks a valid type, DC or the blueprint name 'trap'", ai[a].name, t);
                 if (p->kind == 'X' && ((p->trapdc > 0) != (p->trap >= 0))) BAD("%s: container marker %s has a trap type without a DC or the other way round", ai[a].name, t);
             }
@@ -670,6 +708,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         if (p->area == 0 && cheb(p->cx, p->cy, (int)(gff_get_float(ifo->root, "Mod_Entry_X", -1) / 10.0), (int)(gff_get_float(ifo->root, "Mod_Entry_Y", -1) / 10.0)) < (nweak ? 1 : 2))
             BAD("marker at (%d,%d) is next to the module entry", p->cx, p->cy);
         if (!on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0) && !((p->kind == 'D' || p->kind == 'P') && on_corridor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0))) BAD("%s: marker at (%d,%d) is not on a floor cell", ai[p->area].name, p->cx, p->cy);
+        if (p->kind == 'E' && (absd(absd(p->ox) - 3.5) > 0.02 || absd(absd(p->oy) - 3.5) > 0.02)) BAD("%s: lever at (%d,%d) is not on a corner spot of its cell", ai[p->area].name, p->cx, p->cy);
         if (p->kind == 'P') { /* floor trap: the middle of a full-floor cell or of a straight corridor cell */
             int sides = ai[p->area].open[p->cy * ai[p->area].w + p->cx] & 15;
             int corr = !on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0);

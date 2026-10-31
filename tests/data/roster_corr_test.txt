@@ -3,6 +3,7 @@ nwndgen-roster 1
 vault t_vault
 key t_key
 relic t_relic
+lever plc_flrlever1
 
 theme alpha Alpha Raiders
 minion t_a_min1 0.25
