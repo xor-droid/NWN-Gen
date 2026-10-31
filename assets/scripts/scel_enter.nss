@@ -8,6 +8,7 @@
 // scel_lockdc (it starts locked, pick DC) -- recipe key locks. Locked doors themselves are written into the area GIT.
 // scel_amb (recipe key ambush): a creature marker with it stays hidden until its group is sprung (see scel_inc, scel_use, scel_beat);
 // a container marker with it springs that group when opened.
+// Recipe key reactions: the vault gets scel_use on OnOpen (reinforcements), every planned creature is on the death-alert watch list, and the boss calls for help once (scel_beat).
 // scel_rt (recipe key patrols): a creature marker with it walks a route inside its room (see scel_inc, scel_beat).
 // SPE_ lever (recipe key levers): scel_gate = tag of the gate door it opens.
 // SPP_ trap (recipe key traps): scel_trap = TRAP_BASE_TYPE, scel_trapdc = detect and disarm DC; a container marker with scel_trapdc starts trapped.
@@ -137,6 +138,7 @@ void main()
             object oCreature = CreateObject(OBJECT_TYPE_CREATURE, sBp, lLoc);
             GiveSpawnLoot(oCreature, oArea, i);
             RegisterPatrol(oCreature, oArea, i, lLoc); // recipe key patrols: it walks a route (scel_beat)
+            RegisterWatch(oCreature, oArea); // recipe key reactions: its death may raise an alarm (scel_beat)
         }
         else if (sKind == "SPX_")
         {
@@ -161,7 +163,7 @@ void main()
                 SetLocalInt(oBox, "scel_amb", nAmb);
                 SetLocalInt(oArea, "scel_gx" + IntToString(nAmb), TRUE);
                 SetLocalObject(oArea, "scel_go" + IntToString(nAmb), oBox);
-                SetEventScript(oBox, EVENT_SCRIPT_PLACEABLE_ON_OPEN, "scel_use");
+                HookOpen(oBox); // keeps the stock OnOpen script, scel_use runs it first
             }
         }
         else if (sKind == "SPE_")
@@ -201,6 +203,12 @@ void main()
             SetLockKeyTag(oVault, "SCEL_KEY");
             SetLocked(oVault, TRUE);
             SetPlotFlag(oVault, TRUE);
+            if (GetLocalInt(oMod, "scel_rc") > 0)
+            {
+                // Recipe key reactions: opening the vault brings reinforcements (scel_use).
+                SetLocalInt(oVault, "scel_react", TRUE);
+                HookOpen(oVault);
+            }
             SetLocalObject(oArea, "scel_vault", oVault);
         }
     }

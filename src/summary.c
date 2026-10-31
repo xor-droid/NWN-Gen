@@ -70,7 +70,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     size_t nl2 = 0;
     char bossloot[2][17] = {"", ""};
     char bossbp[17] = "";
-    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount, r->dressing, r->corridor_dressing, r->locks, r->ambush, r->traps, r->levers, r->patrols, r->encounters};
+    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount, r->dressing, r->corridor_dressing, r->locks, r->ambush, r->traps, r->levers, r->patrols, r->encounters, r->reactions};
 
     put(&b, "\n%s (seed %llu)\n", r->module_name, (unsigned long long)cfg->seed);
     if (cfg->min_level == cfg->max_level)
@@ -217,6 +217,8 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
                 spawn_patrol_counts(ar, &np);
                 put(&b, "    patrols (patrols %s): %d %s\n", r->patrols == 1 ? "low" : r->patrols == 2 ? "mid" : "high", np, plural(np, "patrol", "patrols"));
             }
+            if (d->rea_n)
+                put(&b, "    reactions (reactions on): death alerts, vault reinforcements and a boss call for help, pool of %d, groups of %d\n", d->rea_n, d->rea_group);
             if (d->enc_n)
                 put(&b, "    encounters (encounters %s): pool of %d, groups of %d, up to %d per area, %d%% chance when a player rests, one after %d quiet heartbeats\n", r->encounters == 1 ? "low" : r->encounters == 2 ? "mid" : "high", d->enc_n, d->enc_group, d->enc_cap, d->enc_pct, d->enc_tick);
             if (r->levers) {

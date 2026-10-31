@@ -597,6 +597,16 @@ static void test_recipe(void)
         CHECK(RP(la) != 0 && strstr(err, "twice"));
         snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nencounters low\nencounters high\n", GOOD_RECIPE);
         CHECK(RP(la) != 0 && strstr(err, "twice"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nreactions on\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.reactions == 1);
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nreactions off\n", GOOD_RECIPE);
+        CHECK(RP(la) == 0 && r.reactions == 0);
+        snprintf(la, sizeof la, "%sreactions on\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "need roster"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nreactions high\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "on or off"));
+        snprintf(la, sizeof la, "%sroster r.txt\nscripts s\nreactions on\nreactions off\n", GOOD_RECIPE);
+        CHECK(RP(la) != 0 && strstr(err, "twice"));
         snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ntraps high\n", GOOD_RECIPE);
         CHECK(RP(la) == 0 && r.traps == 3);
         snprintf(la, sizeof la, "%sroster r.txt\nscripts s\ntraps low\n", GOOD_RECIPE);

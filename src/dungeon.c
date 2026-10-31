@@ -989,6 +989,15 @@ static int build_ifo(const gff *in, const recipe *r, const dungeon *d, uint64_t 
             TRY(add_var(s, nm, 1, d->hench[i], 0, err));
         }
     }
+    if (d->rea_n) { /* reactions: the pool the reinforcement scripts read */
+        char nm[24];
+        TRY(add_var(s, "scel_rc", 0, NULL, d->rea_n, err));
+        for (i = 0; i < (size_t)d->rea_n; i++) {
+            snprintf(nm, sizeof nm, "scel_r%d", (int)i + 1);
+            TRY(add_var(s, nm, 1, d->rea_pool[i], 0, err));
+        }
+        TRY(add_var(s, "scel_rg", 0, NULL, d->rea_group, err));
+    }
     TRY(gff_set_string(s, "Mod_Entry_Area", GFF_RESREF, a0->resref, err));
     direction(a0->pair_start, a0->pair_start + 2, &dx, &dy);
     TRY(gff_set_float(s, "Mod_Entry_X", (float)cc(a0->pair_start[0]), err));
@@ -1301,7 +1310,7 @@ int dungeon_build_ex(const recipe *r, const tilepack *tp, const gff *tpl_are, co
         size_t sq;
         for (sq = 0; sq < a->nsp; sq++)
             sprung |= a->sp[sq].amb != 0 || a->sp[sq].nrt != 0;
-        sprung |= out->enc_n != 0;
+        sprung |= out->enc_n != 0 || out->rea_n != 0;
         if (build_are(tpl_are, tp, &r->areas[i], &a->lay, a->tiles, out->has_spawn ? "scel_enter" : "", sprung ? "scel_beat" : "",
                       out->has_spawn ? &sc->ro->theme[out->theme] : NULL, &are, err) != 0) {
             gff_free(&are);

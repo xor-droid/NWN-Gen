@@ -22,6 +22,7 @@
  *   levers on|off                      (optional, default off) turn a keyless locked door of each area into a gate that a lever in a room before it opens (the gate can still be bashed); needs locks and the roster's lever line
  *   patrols off|low|mid|high           (optional, default off) some room creatures walk a short route inside their room instead of standing still (low: one in half the areas, mid: one per area, high: two); needs roster and scripts
  *   encounters off|low|mid|high        (optional, default off) random encounters at play time: a group of the dungeon's own creatures turns up when a player rests (15, 30, 50 in 100) or after a long quiet spell, at most 2, 4 or 6 times per area; needs roster and scripts
+ *   reactions on|off                    (optional, default off) the dungeon answers the player: the death of a creature may call the nearest idle one to the spot, opening the vault brings reinforcements, and the boss calls for help once at half health; needs roster and scripts
  *   seed N                              (optional) run defaults: unsigned 64-bit seed, party size 1-32, character levels 1-40;
  *   party_size N                         the command-line options of the same name override them
  *   min_level N | max_level N
@@ -66,6 +67,7 @@ typedef struct {
     int traps;         /* traps off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; floor traps and trapped containers (needs roster and scripts) */
     int patrols;       /* patrols off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; room creatures that walk a route (needs roster and scripts) */
     int encounters;    /* encounters off|low|mid|high: 0 off (default), 1 low, 2 mid, 3 high; random encounters while playing (needs roster and scripts) */
+    int reactions;     /* reactions on|off: 1 turns on death alerts, vault reinforcements and the boss's call for help (needs roster and scripts) */
     int levers;        /* levers on|off: 1 turns some keyless locked doors into gates that a lever in an earlier room opens (needs roster, scripts and locks) */
     int has_seed, has_party, has_min_lvl, has_max_lvl; /* run defaults given in the recipe; the command line overrides them */
     uint64_t run_seed;

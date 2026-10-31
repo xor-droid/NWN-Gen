@@ -539,6 +539,35 @@ badruns "encounters without roster" --recipe "$FX/r_enoroster.txt"
 badruns "encounters given twice" --recipe "$FX/r_edup.txt"
 { cat "$FX/recipe_kit_corr.txt"; echo "encounters lots"; } > "$FX/r_ebad.txt"
 badruns "encounters lots" --recipe "$FX/r_ebad.txt"
+# reactions on|off: the dungeon answers the player (death alerts, vault reinforcements, the boss's call for help); the generator only writes the pool and the group size
+mkdir -p "$T/rc"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed 12345 --output "$T/rc/off.mod" --manifest "$T/rc/off.txt" >/dev/null || bad "reactions baseline generate"
+! grep -q 'reactions' "$T/rc/off.txt" && ok || bad "reactions appears in the manifest without the recipe key"
+{ cat "$FX/recipe_kit_corr.txt"; echo "reactions on"; } > "$FX/recipe_kit_react.txt"
+rcmod=
+for seed in 1 2 3 4 5 6 7 8 12345; do
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_react.txt" --seed $seed --output "$T/rc/on_$seed.mod" --manifest "$T/rc/on_$seed.txt" >"$T/rc/on_$seed.out" || { bad "reactions generate seed $seed"; continue; }
+  grep -q '^reactions=on$' "$T/rc/on_$seed.txt" && grep -q '^reactions_algorithm=reactions/1$' "$T/rc/on_$seed.txt" && grep -q '^reactions_config=pool [1-9][0-9]*, group [234]$' "$T/rc/on_$seed.txt" && grep -q '^script.scel_beat.ncs_sha256=' "$T/rc/on_$seed.txt" && ok || bad "reactions manifest seed $seed"
+  grep -q 'reactions (reactions on)' "$T/rc/on_$seed.out" && ok || bad "reactions summary seed $seed"
+  dgk --roster "$FX/roster_corr_test.txt" "$T/rc/on_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck reactions seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+  rcmod="$T/rc/on_$seed.mod"
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed $seed --output "$T/rc/plain_$seed.mod" --force >"$T/rc/plain_$seed.out" 2>&1
+  [ "$(grep -E 'creatures [0-9]+|total CR' "$T/rc/on_$seed.out")" = "$(grep -E 'creatures [0-9]+|total CR' "$T/rc/plain_$seed.out")" ] && ok || bad "reactions changed the creature totals, seed $seed"
+done
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_react.txt" --seed 12345 --output "$T/rc/again.mod" >/dev/null && cmp -s "$T/rc/again.mod" "$T/rc/on_12345.mod" && ok || bad "reactions build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "reactions off"; } > "$FX/recipe_kit_react_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_react_off.txt" --seed 12345 --output "$T/rc/offkey.mod" >/dev/null && cmp -s "$T/rc/offkey.mod" "$T/rc/off.mod" && ok || bad "reactions off differs from leaving the key out"
+# negative proofs: a missing group size, and a pool without the heartbeat that runs it
+LC_ALL=C sed 's/scel_rg/scel_rh/g' "$rcmod" > "$T/rc/nogroup.mod"
+dgk --roster "$FX/roster_corr_test.txt" "$T/rc/nogroup.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted reactions without a group size" || { grep -q "scel_rg must be an int" "$T/dg.txt" && ok || bad "dgcheck reactions message: $(head -3 "$T/dg.txt")"; }
+LC_ALL=C sed 's/scel_rc\([^a-z]\)/scel_rd\1/' "$rcmod" > "$T/rc/nopool.mod"
+dgk --roster "$FX/roster_corr_test.txt" "$T/rc/nopool.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted a heartbeat without reactions or any other feature" || { grep -q "OnHeartbeat is" "$T/dg.txt" && ok || bad "dgcheck reactions heartbeat message: $(head -3 "$T/dg.txt")"; }
+{ cat "$FX/recipe_kit.txt"; echo "reactions on"; } > "$FX/r_rnoroster.txt"
+badruns "reactions without roster" --recipe "$FX/r_rnoroster.txt"
+{ cat "$FX/recipe_kit_react.txt"; echo "reactions off"; } > "$FX/r_rdup.txt"
+badruns "reactions given twice" --recipe "$FX/r_rdup.txt"
+{ cat "$FX/recipe_kit_corr.txt"; echo "reactions high"; } > "$FX/r_rbad.txt"
+badruns "reactions high" --recipe "$FX/r_rbad.txt"
 # negative proofs: the validator re-reads the tileset, so a lie about edges, door slots or doors must show
 KSET=tileset_kit_edge.set; sed 's/^Top=Corridor/Top=Bridge/' "$FX/tileset_kit.set" > "$FX/$KSET"
 checkfail "dgcheck rejects wrong corridor edges" dgk "$T/k/k1.mod"

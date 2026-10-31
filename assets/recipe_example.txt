@@ -68,6 +68,9 @@ patrols off
 # Optional: random encounters at play time (when resting, and after a long quiet spell); off (default), low, mid or high.
 encounters off
 
+# Optional: the dungeon answers the player (death alerts, vault reinforcements, the boss calls for help); off (default) or on.
+reactions off
+
 # Optional run defaults. The command-line options of the same name override them.
 seed 12345
 party_size 1

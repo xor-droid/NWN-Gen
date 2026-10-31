@@ -2,6 +2,7 @@
 // Ambush: springs the groups that no chest guards when a player comes within 8 m of the group's first creature; a group guarded by a chest also
 // springs when the chest is found open (OnOpen is the main trigger) or destroyed.
 // Patrols: nudges the idle patrol creatures along their routes. Encounters: counts quiet heartbeats towards a random encounter.
+// Reactions: death alerts and the boss's call for help.
 #include "scel_inc"
 
 void main()
@@ -30,4 +31,6 @@ void main()
     }
     NudgePatrols(oArea);
     QuietTick(oArea);
+    WatchDeaths(oArea);
+    BossCall(oArea);
 }

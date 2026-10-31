@@ -103,6 +103,9 @@ typedef struct {
     int nhench;
     int enc_n;                        /* encounters: pool of creature resrefs for random encounters (0 = recipe key encounters is off) */
     char enc_pool[16][17];
+    int rea_n;                        /* reactions: pool of creature resrefs for reinforcements and the boss's call for help (0 = recipe key reactions is off) */
+    char rea_pool[16][17];
+    int rea_group;                    /* creatures per reinforcement group */
     int enc_group, enc_cap, enc_pct, enc_tick; /* creatures per group, encounters per area, percent chance when a player rests, quiet heartbeats before an unprompted one */
     uint8_t *jrl;                     /* module.jrl when has_spawn */
     size_t njrl;

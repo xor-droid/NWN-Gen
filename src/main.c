@@ -134,7 +134,7 @@ static const struct { const char *name; uint16_t type; } SCRIPT_FILES[] = {
 #define N_SCRIPT_FILES 10
 #define N_BASE_SCRIPTS 4
 #define N_USE_SCRIPTS 8
-#define SCRIPTS_FOR(r) ((r)->encounters ? N_SCRIPT_FILES : (r)->ambush || (r)->levers || (r)->patrols ? N_USE_SCRIPTS : N_BASE_SCRIPTS)
+#define SCRIPTS_FOR(r) ((r)->encounters ? N_SCRIPT_FILES : (r)->ambush || (r)->levers || (r)->patrols || (r)->reactions ? N_USE_SCRIPTS : N_BASE_SCRIPTS)
 
 typedef struct {
     recipe r;
@@ -317,6 +317,7 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.levers = c->r.levers;
         sc.patrols = c->r.patrols;
         sc.encounters = c->r.encounters;
+        sc.reactions = c->r.reactions;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -662,6 +663,11 @@ int main(int argc, char **argv)
                         spawn_patrol_counts(&c->d.area[s], &np);
                         append(&manifest, &mlen, &mcap, "patrols.%s=patrols %d\n", c->d.area[s].resref, np);
                     }
+                }
+                if (c->r.reactions) {
+                    append(&manifest, &mlen, &mcap, "reactions=on\n");
+                    append(&manifest, &mlen, &mcap, "reactions_algorithm=%s\n", REACTIONS_ALGORITHM_VERSION);
+                    append(&manifest, &mlen, &mcap, "reactions_config=pool %d, group %d\n", c->d.rea_n, c->d.rea_group);
                 }
                 if (c->r.encounters) {
                     append(&manifest, &mlen, &mcap, "encounters=%s\n", c->r.encounters == 1 ? "low" : c->r.encounters == 2 ? "mid" : "high");

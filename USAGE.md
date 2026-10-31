@@ -176,6 +176,7 @@ traps off                         optional: off (default), low, mid or high, see
 levers off                        optional: off (default) or on, needs locks, see Levers and gates
 patrols off                       optional: off (default), low, mid or high, see Patrols
 encounters off                    optional: off (default), low, mid or high, see Random encounters
+reactions off                     optional: off (default) or on, see Reactions
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions
@@ -337,6 +338,17 @@ A group is 2 creatures for a party of 1-2, 3 for 3-4 and 4 for more; each is dra
 `dgcheck` checks the module variables (`scel_ec` pool size 1-16 and `scel_e1..` resrefs that are minions or standard creatures of the module's theme, group 2-4, cap 1-8, chance 1-100, quiet 20-1000), and that `OnPlayerRest` runs `scel_rest` exactly when the pool exists and that every area runs the heartbeat. Own algorithm id `encounters/1` (no RNG at generation time); the manifest records `encounters=`, `encounters_algorithm=`
 and `encounters_config=pool N, group G, cap C, rest P, quiet T`. The base module must not already handle `OnPlayerRest`. Generated and validated; the run-time rolls cannot be tested without the game: **not yet confirmed in game** (open points: that the rest event fires with the expected type, that the group finds its way to the player, and the right feel of the chances).
 (Wandering respawn of killed room creatures, which an earlier plan listed, is covered by encounters and is not a separate feature.)
+
+#### Reactions (same `roster`, recipe key `reactions`)
+
+`reactions on|off` (default `off`, needs `roster` and `scripts`) makes the dungeon answer the player. Three reactions, all decided at play time:
+(1) **death alert**: every planned creature is on the area's watch list; the heartbeat remembers where each living one stands, and when one is found dead there is a 50 in 100 chance (at most 6 times per area) that the nearest living creature that is not fighting and stands 8-40 m away runs to that spot;
+(2) **vault reinforcements**: opening the vault (the stock vault chest's OnOpen now runs `scel_use`, which runs the stock script it replaced first and then calls the reinforcements) brings one group of creatures, once, at the spot of a planned creature 10-45 m from the player;
+(3) **the boss calls for help**: once, when the boss is fighting and below half its hit points, a group appears at its feet and goes for the nearest player.
+The groups are 2 creatures for a party of 1-2, 3 for 3-4 and 4 for more, drawn from a pool the generator stores in module variables (`scel_rc`, `scel_r1..`, `scel_rg`): the theme's minions and standard creatures at or under the regular CR cap, like encounters. They carry nothing (stock treasure is off), kill XP is normal. This does make a run harder than its planned totals; it is the point of the key, and `off` leaves it out.
+Nothing is generated per area, the heartbeat just runs in every area. `dgcheck` checks the pool variables (1-16 minions or standard creatures of the module's theme, group 2-4) and that every area runs the heartbeat. Algorithm id `reactions/1` (no RNG at generation time); the manifest records `reactions=on`, `reactions_algorithm=` and `reactions_config=pool N, group G`. Not in `boss_only` or `loot_test` runs.
+Generated and validated; **not yet confirmed in game** (open points: that replacing the vault's OnOpen by `scel_use` still gives the usual contents, that corpses and despawned creatures are detected, that the called creatures reach the spot, and the difficulty).
+Related fix: the ambush chest hook (recipe key `ambush`) now also keeps the stock OnOpen script, so a chest that springs an ambush still rolls its usual treasure.
 
 #### Level-scaled loot (same `roster`)
 

@@ -570,7 +570,7 @@ static void check_ambush(area_info *ai, size_t na, const marker *mk, size_t nm, 
             pat += mk[i].area == (int)a && mk[i].rt > 0;
         }
         if ((maxg > 0 || pat > 0 || enc) != !strcmp(ai[a].on_beat, "scel_beat") || (*ai[a].on_beat && strcmp(ai[a].on_beat, "scel_beat")))
-            BAD("%s: OnHeartbeat is '%s' but the area has %d ambush groups, %d patrols and encounters are %s", ai[a].name, ai[a].on_beat, maxg, pat, enc ? "on" : "off");
+            BAD("%s: OnHeartbeat is '%s' but the area has %d ambush groups, %d patrols and encounters or reactions are %s", ai[a].name, ai[a].on_beat, maxg, pat, enc ? "on" : "off");
         for (g = 1; g <= maxg; g++) {
             int members = 0, chests = 0;
             size_t cm = 0;
@@ -794,7 +794,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
     {
         const char *esv = NULL;
         int64_t eiv = 0;
-        enc_on = var_get(ifo->root, "scel_ec", &esv, &eiv) != 0;
+        enc_on = var_get(ifo->root, "scel_ec", &esv, &eiv) != 0 || var_get(ifo->root, "scel_rc", &esv, &eiv) != 0; /* encounters or reactions: every area runs the heartbeat */
     }
     check_locks(ifo, ai, na, mk, nm, ro);
     check_ambush(ai, na, mk, nm, enc_on);
@@ -878,6 +878,33 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
                         f = in_roster_role(&ro->theme[theme], role, sv, &ecr);
                     }
                     if (ro && theme >= 0 && !f) BAD("encounter creature %s is not a minion or standard creature of theme '%s'", sv, ro->theme[theme].id);
+                }
+            }
+        }
+    }
+    /* reactions (recipe key reactions): module variables scel_rc / scel_r1.. name the creatures that reinforcements and the boss's call for help bring (the
+     * theme's minions and standard creatures), scel_rg the group size */
+    {
+        const char *sv = NULL;
+        int64_t iv = 0, nr = 0;
+        int rk, ty = var_get(ifo->root, "scel_rc", &sv, &iv);
+        if (ty) {
+            nr = iv;
+            if (ty != 1 || nr < 1 || nr > 16) BAD("scel_rc must be an int 1-16 (got %lld)", (long long)nr);
+            else {
+                ty = var_get(ifo->root, "scel_rg", &sv, &iv);
+                if (ty != 1 || iv < 2 || iv > 4) BAD("scel_rg must be an int 2-4");
+                for (rk = 1; rk <= (int)nr; rk++) {
+                    char rnm[24];
+                    int role, f = 0;
+                    snprintf(rnm, sizeof rnm, "scel_r%d", rk);
+                    ty = var_get(ifo->root, rnm, &sv, &iv);
+                    if (ty != 3 || !sv || !resref_ok(sv)) { BAD("%s is missing or not a resref string", rnm); continue; }
+                    for (role = ROLE_MINION; ro && theme >= 0 && role <= ROLE_STANDARD && !f; role++) {
+                        int rcr;
+                        f = in_roster_role(&ro->theme[theme], role, sv, &rcr);
+                    }
+                    if (ro && theme >= 0 && !f) BAD("reaction creature %s is not a minion or standard creature of theme '%s'", sv, ro->theme[theme].id);
                 }
             }
         }

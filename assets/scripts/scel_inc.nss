@@ -144,23 +144,21 @@ void NudgePatrols(object oArea)
     }
 }
 
-// Random encounter (recipe key encounters), around player oPC: a group of the dungeon's own creatures appears at the spot of a planned (not hidden) creature
-// 10-45 m away and goes for the player. Never next to a living boss, at most scel_ecap times per area (module locals: scel_ec pool size, scel_e<k> resrefs,
-// scel_eg group size, scel_ecap, scel_epct, scel_etick). The creatures carry nothing: the stock random treasure is already switched off by scel_enter.
-// Returns TRUE if a group came.
-int ScelEncounter(object oPC)
+// A group of the dungeon's own creatures appears around player oPC and goes for the player: the creatures come from the module pool (nPool entries in
+// module locals sPre1, sPre2 ...), nGroup of them, at the spot of a planned (not hidden) creature 10-45 m away and never within 12 m of a living boss.
+// Used by random encounters (recipe key encounters) and by reactions (recipe key reactions). The creatures carry nothing: the stock random treasure is
+// already switched off by scel_enter. Returns TRUE if a group came.
+int ScelSpawnNear(object oPC, int nPool, string sPre, int nGroup, string sMsg)
 {
-    object oMod = GetModule();
     object oArea = GetArea(oPC);
     object oBoss = GetLocalObject(oArea, "scel_boss");
     location lPC = GetLocation(oPC);
-    int nPool = GetLocalInt(oMod, "scel_ec");
     int nMark = GetLocalInt(oArea, "scel_nm");
     int nSpots = 0;
     int nPick;
     int i;
     int bCount;
-    if (nPool < 1 || !GetIsObjectValid(oArea) || !GetLocalInt(oArea, "scel_done") || GetLocalInt(oArea, "scel_en") >= GetLocalInt(oMod, "scel_ecap"))
+    if (nPool < 1 || !GetIsObjectValid(oArea) || !GetLocalInt(oArea, "scel_done"))
         return FALSE;
     for (bCount = TRUE; bCount >= FALSE; bCount--)
     {
@@ -183,21 +181,33 @@ int ScelEncounter(object oPC)
                 nSpots++;
             else if (nSeen++ == nPick)
             {
-                int nGroup = GetLocalInt(oMod, "scel_eg");
                 int k;
-                SetLocalInt(oArea, "scel_en", GetLocalInt(oArea, "scel_en") + 1);
                 for (k = 0; k < nGroup; k++)
                 {
-                    object oC = CreateObject(OBJECT_TYPE_CREATURE, GetLocalString(oMod, "scel_e" + IntToString(1 + Random(nPool))), lAt);
+                    object oC = CreateObject(OBJECT_TYPE_CREATURE, GetLocalString(GetModule(), sPre + IntToString(1 + Random(nPool))), lAt);
                     if (GetIsObjectValid(oC))
                         AssignCommand(oC, ActionAttack(oPC));
                 }
-                FloatingTextStringOnCreature("Something stirs in the dark...", oPC, FALSE);
+                FloatingTextStringOnCreature(sMsg, oPC, FALSE);
                 return TRUE;
             }
         }
     }
     return FALSE;
+}
+
+// Random encounter (recipe key encounters) around player oPC, at most scel_ecap times per area (module locals: scel_ec pool size, scel_e<k> resrefs,
+// scel_eg group size, scel_ecap, scel_epct, scel_etick). Returns TRUE if a group came.
+int ScelEncounter(object oPC)
+{
+    object oMod = GetModule();
+    object oArea = GetArea(oPC);
+    if (GetLocalInt(oMod, "scel_ec") < 1 || GetLocalInt(oArea, "scel_en") >= GetLocalInt(oMod, "scel_ecap"))
+        return FALSE;
+    if (!ScelSpawnNear(oPC, GetLocalInt(oMod, "scel_ec"), "scel_e", GetLocalInt(oMod, "scel_eg"), "Something stirs in the dark..."))
+        return FALSE;
+    SetLocalInt(oArea, "scel_en", GetLocalInt(oArea, "scel_en") + 1);
+    return TRUE;
 }
 
 // Called by the area heartbeat: counts heartbeats in which the first player in the area has no living enemy within 20 m, and rolls an encounter when
@@ -229,4 +239,106 @@ void QuietTick(object oArea)
         SetLocalInt(oArea, "scel_eq", 0);
         ScelEncounter(oPC);
     }
+}
+
+// Reactions (recipe key reactions; module locals scel_rc pool size, scel_r<k> resrefs, scel_rg group size).
+// Hooks the OnOpen event of a container to scel_use but keeps the stock script: its name is saved in the scel_old local and scel_use runs it first.
+void HookOpen(object oBox)
+{
+    string sOld = GetEventScript(oBox, EVENT_SCRIPT_PLACEABLE_ON_OPEN);
+    if (sOld != "scel_use")
+        SetLocalString(oBox, "scel_old", sOld);
+    SetEventScript(oBox, EVENT_SCRIPT_PLACEABLE_ON_OPEN, "scel_use");
+}
+
+// The vault was opened: reinforcements come, once.
+void VaultReaction(object oVault, object oPC)
+{
+    object oMod = GetModule();
+    if (GetLocalInt(oVault, "scel_reacted") || GetLocalInt(oMod, "scel_rc") < 1 || !GetIsPC(oPC))
+        return;
+    SetLocalInt(oVault, "scel_reacted", TRUE);
+    ScelSpawnNear(oPC, GetLocalInt(oMod, "scel_rc"), "scel_r", GetLocalInt(oMod, "scel_rg"), "The vault's seal breaks, and the dungeon answers!");
+}
+
+// Death alerts: every planned creature of the area is on the watch list (scel_wc, scel_wo<k>); the heartbeat remembers where each living one stands
+// (scel_wl on the creature) and when one is found dead or gone for the first time (scel_wd<k> on the area), there is a 50 in 100 chance, at most 6
+// times per area (scel_wa), that the nearest living creature that is not fighting and stands 8-40 m from that spot runs there.
+void RegisterWatch(object oC, object oArea)
+{
+    int nCount = GetLocalInt(oArea, "scel_wc");
+    if (GetLocalInt(GetModule(), "scel_rc") < 1 || !GetIsObjectValid(oC))
+        return;
+    SetLocalObject(oArea, "scel_wo" + IntToString(nCount), oC);
+    SetLocalInt(oArea, "scel_wc", nCount + 1);
+}
+
+void WatchDeaths(object oArea)
+{
+    int nCount = GetLocalInt(oArea, "scel_wc");
+    int i;
+    int j;
+    for (i = 0; i < nCount; i++)
+    {
+        string sI = IntToString(i);
+        object oC = GetLocalObject(oArea, "scel_wo" + sI);
+        location lBody;
+        object oBest = OBJECT_INVALID;
+        float fBest = 40.0;
+        if (GetLocalInt(oArea, "scel_wd" + sI))
+            continue;
+        if (GetIsObjectValid(oC) && !GetIsDead(oC))
+        {
+            SetLocalLocation(oC, "scel_wl", GetLocation(oC));
+            continue;
+        }
+        SetLocalInt(oArea, "scel_wd" + sI, TRUE);
+        if (!GetIsObjectValid(oC))
+            continue; // gone before it was ever seen alive here: no place to run to
+        lBody = GetLocalLocation(oC, "scel_wl");
+        if (GetLocalInt(oArea, "scel_wa") >= 6 || Random(100) >= 50)
+            continue;
+        for (j = 0; j < nCount; j++)
+        {
+            object oN = GetLocalObject(oArea, "scel_wo" + IntToString(j));
+            float fD;
+            if (j == i || !GetIsObjectValid(oN) || GetIsDead(oN) || GetIsInCombat(oN) || GetCurrentAction(oN) != ACTION_INVALID)
+                continue;
+            fD = GetDistanceBetweenLocations(GetLocation(oN), lBody);
+            if (fD >= 8.0 && fD < fBest)
+            {
+                fBest = fD;
+                oBest = oN;
+            }
+        }
+        if (GetIsObjectValid(oBest))
+        {
+            SetLocalInt(oArea, "scel_wa", GetLocalInt(oArea, "scel_wa") + 1);
+            AssignCommand(oBest, ActionMoveToLocation(lBody, TRUE));
+        }
+    }
+}
+
+// The boss calls for help once, when it is fighting and below half its hit points: a group appears at its feet and goes for the nearest player.
+void BossCall(object oArea)
+{
+    object oMod = GetModule();
+    object oBoss = GetLocalObject(oArea, "scel_boss");
+    object oPC;
+    int nPool = GetLocalInt(oMod, "scel_rc");
+    int k;
+    if (nPool < 1 || !GetIsObjectValid(oBoss) || GetIsDead(oBoss) || GetLocalInt(oArea, "scel_bs"))
+        return;
+    if (GetCurrentHitPoints(oBoss) * 2 > GetMaxHitPoints(oBoss) || !GetIsInCombat(oBoss))
+        return;
+    SetLocalInt(oArea, "scel_bs", TRUE);
+    oPC = GetNearestCreature(CREATURE_TYPE_PLAYER_CHAR, PLAYER_CHAR_IS_PC, oBoss);
+    for (k = 0; k < GetLocalInt(oMod, "scel_rg"); k++)
+    {
+        object oC = CreateObject(OBJECT_TYPE_CREATURE, GetLocalString(oMod, "scel_r" + IntToString(1 + Random(nPool))), GetLocation(oBoss));
+        if (GetIsObjectValid(oC) && GetIsObjectValid(oPC))
+            AssignCommand(oC, ActionAttack(oPC));
+    }
+    if (GetIsObjectValid(oPC))
+        FloatingTextStringOnCreature("The boss calls for help!", oPC, FALSE);
 }
