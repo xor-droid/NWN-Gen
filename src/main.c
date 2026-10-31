@@ -128,8 +128,11 @@ static void append(char **buf, size_t *len, size_t *cap, const char *fmt, ...)
 
 /* Scripts the objective needs: area OnEnter spawns from the markers, module OnAcquireItem drives the journal. */
 static const struct { const char *name; uint16_t type; } SCRIPT_FILES[] = {
-    {"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS}};
-#define N_SCRIPT_FILES 4
+    {"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS},
+    {"scel_use", RES_NSS}, {"scel_use", RES_NCS}, {"scel_beat", RES_NSS}, {"scel_beat", RES_NCS}}; /* the last four only with recipe key ambush */
+#define N_SCRIPT_FILES 8
+#define N_BASE_SCRIPTS 4
+#define SCRIPTS_FOR(r) ((r)->ambush ? N_SCRIPT_FILES : N_BASE_SCRIPTS)
 
 typedef struct {
     recipe r;
@@ -264,7 +267,7 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
     }
     if (c->r.roster[0]) {
         size_t yl;
-        for (i = 0; i < N_SCRIPT_FILES; i++) {
+        for (i = 0; i < SCRIPTS_FOR(&c->r); i++) {
             char path[RECIPE_PATH_MAX + 64];
             if (erf_find(base, SCRIPT_FILES[i].name, SCRIPT_FILES[i].type)) {
                 set_err(err, "base module already contains '%s.%s'", SCRIPT_FILES[i].name, res_ext(SCRIPT_FILES[i].type));
@@ -307,6 +310,8 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
         sc.dressing = c->r.dressing;
         sc.corridor_dressing = c->r.corridor_dressing;
         sc.locks = c->r.locks;
+        sc.ambush = c->r.ambush;
+        sc.traps = c->r.traps;
         if (dungeon_build_ex(&c->r, &c->tp, &c->tare, &c->tgit, &c->ifo, cfg->seed, c->have_ro ? &sc : NULL, &c->d,
                              err) != 0)
             goto done;
@@ -334,7 +339,7 @@ static int recipe_run(rctx *c, const char *recipe_path, const erf *base, const c
     if (c->d.has_spawn) {
         if (erf_add(out, "module", RES_JRL, c->d.jrl, (uint32_t)c->d.njrl, err) != 0)
             goto done_out;
-        for (i = 0; i < N_SCRIPT_FILES; i++)
+        for (i = 0; i < SCRIPTS_FOR(&c->r); i++)
             if (erf_add(out, SCRIPT_FILES[i].name, SCRIPT_FILES[i].type, c->sbuf[i], (uint32_t)c->slen[i], err) != 0)
                 goto done_out;
     }
@@ -590,7 +595,7 @@ int main(int argc, char **argv)
                     for (hq = 0; hq < c->d.nhench; hq++)
                         append(&manifest, &mlen, &mcap, "henchman.%d=%s\n", hq + 1, c->d.hench[hq]);
                 }
-                for (k = 0; k < N_SCRIPT_FILES; k++) {
+                for (k = 0; k < SCRIPTS_FOR(&c->r); k++) {
                     hex_encode(c->ssha[k], 32, vh);
                     append(&manifest, &mlen, &mcap, "script.%s.%s_sha256=%s\n", SCRIPT_FILES[k].name,
                            res_ext(SCRIPT_FILES[k].type), vh);
@@ -633,6 +638,24 @@ int main(int argc, char **argv)
                         int nd, nk, nc;
                         spawn_lock_counts(&c->d.area[s], &nd, &nk, &nc);
                         append(&manifest, &mlen, &mcap, "locks.%s=doors %d, keyed %d, chests %d\n", c->d.area[s].resref, nd, nk, nc);
+                    }
+                }
+                if (c->r.traps) {
+                    append(&manifest, &mlen, &mcap, "traps=%s\n", c->r.traps == 1 ? "low" : c->r.traps == 2 ? "mid" : "high");
+                    append(&manifest, &mlen, &mcap, "traps_algorithm=%s\n", TRAPS_ALGORITHM_VERSION);
+                    for (s = 0; s < c->d.n; s++) {
+                        int nf, nc;
+                        spawn_trap_counts(&c->d.area[s], &nf, &nc);
+                        append(&manifest, &mlen, &mcap, "traps.%s=floor %d, chests %d\n", c->d.area[s].resref, nf, nc);
+                    }
+                }
+                if (c->r.ambush) {
+                    append(&manifest, &mlen, &mcap, "ambush=%s\n", c->r.ambush == 1 ? "low" : c->r.ambush == 2 ? "mid" : "high");
+                    append(&manifest, &mlen, &mcap, "ambush_algorithm=%s\n", AMBUSH_ALGORITHM_VERSION);
+                    for (s = 0; s < c->d.n; s++) {
+                        int ng, nh, nc;
+                        spawn_ambush_counts(&c->d.area[s], &ng, &nh, &nc);
+                        append(&manifest, &mlen, &mcap, "ambush.%s=groups %d, hidden %d, chests %d\n", c->d.area[s].resref, ng, nh, nc);
                     }
                 }
                 if (c->ro.theme[c->d.theme].nloot || c->ro.theme[c->d.theme].gold_per_cr) {

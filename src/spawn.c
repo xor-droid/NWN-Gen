@@ -67,6 +67,8 @@ static void put(dungeon_area *a, char kind, const char *bp, int cx, int cy, int 
     p->weak = 0;
     p->keybp[0] = p->keytag[0] = '\0';
     p->lockdc = 0;
+    p->amb = 0;
+    p->trap = p->trapdc = 0;
 }
 
 /* Boss in the middle of the last room of the last area, vault chest on a free neighbouring cell. */
@@ -817,6 +819,184 @@ void spawn_lock_counts(const dungeon_area *a, int *doors, int *keyed, int *chest
         *chests += a->sp[k].lockdc != 0;
 }
 
+/* Ambush (recipe key `ambush`): some of the creatures already planned for a room stay hidden until a group is sprung, and then appear
+ * together. A group is 2-3 plain creatures of one room (never the arrival room, the boss room, a key carrier or a loot_test creature).
+ * If the room has a lootable container, opening it springs the group; otherwise a player coming near springs it. The hidden creatures are the
+ * ones the spawn plan already budgeted and gave their loot, so creature counts, CR, XP and drops do not change, only when they show up.
+ * low: one group in half the areas, mid: one per area, high: up to two. Own RNG domain, drawn after the locks. */
+static void plan_ambush(dungeon_area *a, int level, uint64_t seed)
+{
+    const layout *l = &a->lay;
+    sm64 rng;
+    int boss_room = -1, want, nr = 0, i, g, rooms[RECIPE_ROOMS_MAX];
+    size_t q;
+
+    if (level < 1 || l->nrooms < 2)
+        return;
+    for (q = 0; q < a->nsp; q++)
+        if (a->sp[q].kind == 'B' || a->sp[q].kind == 'T')
+            boss_room = room_at(l, a->sp[q].cx, a->sp[q].cy);
+    sm64_seed(&rng, domain_seed("nwndgen/ambush/1", 17, seed, a->resref));
+    for (i = 1; i < l->nrooms; i++) {
+        int cnt = 0;
+        for (q = 0; i != boss_room && q < a->nsp; q++)
+            cnt += a->sp[q].kind == 'C' && !a->sp[q].keytag[0] && !a->sp[q].weak && room_at(l, a->sp[q].cx, a->sp[q].cy) == i;
+        if (cnt >= 2)
+            rooms[nr++] = i;
+    }
+    want = level == 1 ? rnd(&rng, 2) : level == 2 ? 1 : 2;
+    want = want > nr ? nr : want;
+    for (g = 0; g < want; g++) {
+        int j = g + rnd(&rng, nr - g), tmp = rooms[g], room, mem[SPAWN_PT_MAX], chest[SPAWN_PT_MAX], nm = 0, nc = 0, take, k;
+        rooms[g] = rooms[j];
+        rooms[j] = tmp;
+        room = rooms[g];
+        for (q = 0; q < a->nsp; q++) {
+            const spawn_pt *p = &a->sp[q];
+            if (p->amb || room_at(l, p->cx, p->cy) != room)
+                continue;
+            if (p->kind == 'C' && !p->keytag[0] && !p->weak)
+                mem[nm++] = (int)q;
+            else if (p->kind == 'X')
+                chest[nc++] = (int)q;
+        }
+        take = 2 + rnd(&rng, 2);
+        take = take > nm ? nm : take;
+        for (k = 0; k < take; k++) {
+            int m = k + rnd(&rng, nm - k), t2 = mem[k];
+            mem[k] = mem[m];
+            mem[m] = t2;
+            a->sp[mem[k]].amb = g + 1;
+        }
+        if (nc)
+            a->sp[chest[rnd(&rng, nc)]].amb = g + 1;
+    }
+}
+
+void spawn_ambush_counts(const dungeon_area *a, int *groups, int *hidden, int *chests)
+{
+    size_t k;
+    *groups = *hidden = *chests = 0;
+    for (k = 0; k < a->nsp; k++) {
+        if (a->sp[k].amb > *groups)
+            *groups = a->sp[k].amb;
+        *hidden += a->sp[k].kind == 'C' && a->sp[k].amb;
+        *chests += a->sp[k].kind == 'X' && a->sp[k].amb;
+    }
+}
+
+/* Traps (recipe key `traps`): hidden floor traps and trapped containers, detectable and disarmable, springing once. The trap strength follows the
+ * band's average character level (minor up to level 4, average to 10, strong to 20, deadly above) so a first-level party meets spike, fire,
+ * gas and the like at their mildest. A floor trap stands in the middle or on a corner spot (3.5 m) of a full-floor room cell outside the quiet arrival room of the first area, or in the middle of a straight
+ * kit corridor cell (a corridor is 5 m wide, so it can be walked around once found); never in a cell holding another marker or a door, nor
+ * beside the arrival and transition points. low/mid/high place 1, 3 and 5 per area and trap 0, 25 and 40 in 100 of the containers. The detect
+ * and disarm DC is 10 + the average level (12-30). Own RNG domain, drawn after the ambush plan. */
+int spawn_trap_tier(int avg)
+{
+    return avg <= 4 ? 0 : avg <= 10 ? 1 : avg <= 20 ? 2 : 3;
+}
+
+static int trap_type(sm64 *rng, int avg)
+{
+    static const int FAMILY[8] = {0, 8, 12, 16, 20, 24, 28, 36}; /* spike, tangle, acid, fire, electrical, gas, frost, sonic */
+    return FAMILY[rnd(rng, 8)] + spawn_trap_tier(avg);
+}
+
+static void plan_traps(dungeon_area *a, int level, uint64_t seed, const spawn_cfg *sc)
+{
+    static const int FLOOR_N[4] = {0, 1, 3, 5}, CHEST_PCT[4] = {0, 0, 25, 40};
+    typedef struct { int x, y, ox, oy; } spot;
+    const layout *l = &a->lay;
+    sm64 rng;
+    spot *cand = xcalloc((size_t)l->w * (size_t)l->h * 5, sizeof *cand);
+    size_t nc = 0, q, k, placed = 0;
+    int avg = (int)(((long)sc->min_level + (long)sc->max_level) / 2), dc, x, y, link, i, s;
+
+    avg = avg < 1 ? 1 : avg;
+    dc = 10 + avg;
+    dc = dc < 12 ? 12 : dc > 30 ? 30 : dc;
+    sm64_seed(&rng, domain_seed("nwndgen/traps/1", 16, seed, a->resref));
+    for (y = 0; y < l->h; y++)
+        for (x = 0; x < l->w; x++) {
+            int room = layout_full_floor(l, x, y) ? room_at(l, x, y) : -1, straight = 0, ok = 1;
+            if (room < 0) { /* a straight kit corridor cell away from the ends of its link */
+                int mask = l->kit ? l->kedge[y][x] : 0;
+                for (link = 0; link < l->nlink && !straight; link++)
+                    for (i = 1; i + 1 < l->link_n[link] && !straight; i++)
+                        straight = l->link[link][i][0] == x && l->link[link][i][1] == y && (mask == 5 || mask == 10);
+                if (!straight)
+                    continue;
+            } else if (room == 0 && a->has_start)
+                continue; /* the quiet arrival room of the first area */
+            for (q = 0; q < a->ndoor && ok; q++)
+                ok = !(a->door[q].cx == x && a->door[q].cy == y);
+            if (a->has_start)
+                ok = ok && !(abs(a->pair_start[0] - x) <= 1 && abs(a->pair_start[1] - y) <= 1) && !(abs(a->pair_start[2] - x) <= 1 && abs(a->pair_start[3] - y) <= 1);
+            if (a->has_prev)
+                ok = ok && !(abs(a->pair_prev[0] - x) <= 1 && abs(a->pair_prev[1] - y) <= 1) && !(abs(a->pair_prev[2] - x) <= 1 && abs(a->pair_prev[3] - y) <= 1);
+            if (a->has_next)
+                ok = ok && !(abs(a->pair_next[0] - x) <= 1 && abs(a->pair_next[1] - y) <= 1) && !(abs(a->pair_next[2] - x) <= 1 && abs(a->pair_next[3] - y) <= 1);
+            if (!ok)
+                continue;
+            for (s = 0; s < (straight ? 1 : 5); s++) { /* the middle of the cell, or one of its four corner spots (3.5 m) */
+                static const int SOX[5] = {0, -1, 1, -1, 1}, SOY[5] = {0, -1, -1, 1, 1};
+                int fx = 350 * SOX[s], fy = 350 * SOY[s], clear = 1;
+                for (q = 0; q < a->nsp && clear; q++) {
+                    const spawn_pt *m = &a->sp[q];
+                    int mx, my;
+                    if (m->cx != x || m->cy != y)
+                        continue;
+                    mx = m->custom ? m->xcm : 350 * m->ox;
+                    my = m->custom ? m->ycm : 350 * m->oy;
+                    clear = !straight && (abs(mx - fx) >= 250 || abs(my - fy) >= 250); /* any marker at all spoils a corridor cell */
+                }
+                if (clear) {
+                    cand[nc].x = x;
+                    cand[nc].y = y;
+                    cand[nc].ox = SOX[s];
+                    cand[nc++].oy = SOY[s];
+                }
+            }
+        }
+    for (k = nc; k > 1; k--) { /* Fisher-Yates */
+        size_t j = (size_t)sm64_bounded(&rng, k);
+        spot tmp = cand[k - 1];
+        cand[k - 1] = cand[j];
+        cand[j] = tmp;
+    }
+    for (k = 0; k < nc && (int)placed < FLOOR_N[level] && a->nsp < SPAWN_PT_MAX; k++) {
+        spawn_pt *p;
+        int near = 0;
+        for (q = 0; q < a->nsp && !near; q++) /* one trap per cell */
+            near = a->sp[q].kind == 'P' && a->sp[q].cx == cand[k].x && a->sp[q].cy == cand[k].y;
+        if (near)
+            continue;
+        put(a, 'P', "trap", cand[k].x, cand[k].y, rnd(&rng, 8));
+        p = &a->sp[a->nsp - 1];
+        p->ox = cand[k].ox;
+        p->oy = cand[k].oy;
+        p->trap = trap_type(&rng, avg);
+        p->trapdc = dc;
+        placed++;
+    }
+    for (q = 0; q < a->nsp; q++)
+        if (a->sp[q].kind == 'X' && rnd(&rng, 100) < CHEST_PCT[level]) {
+            a->sp[q].trap = trap_type(&rng, avg);
+            a->sp[q].trapdc = dc;
+        }
+    free(cand);
+}
+
+void spawn_trap_counts(const dungeon_area *a, int *floor, int *chests)
+{
+    size_t k;
+    *floor = *chests = 0;
+    for (k = 0; k < a->nsp; k++) {
+        *floor += a->sp[k].kind == 'P';
+        *chests += a->sp[k].kind == 'X' && a->sp[k].trapdc > 0;
+    }
+}
+
 int spawn_corridor_props(const dungeon_area *a)
 {
     size_t k;
@@ -966,6 +1146,10 @@ int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *modul
             plan_corridor(a, ro, sc->corridor_dressing, seed);
         if (sc->locks && !sc->boss_only && !sc->loot_test)
             plan_locks(a, ro, sc->locks, seed, sc);
+        if (sc->ambush && !sc->boss_only && !sc->loot_test)
+            plan_ambush(a, sc->ambush, seed);
+        if (sc->traps && !sc->boss_only && !sc->loot_test)
+            plan_traps(a, sc->traps, seed, sc);
         if (sc->loot_test)
             for (k = 0; k < a->nsp; k++)
                 a->sp[k].weak = a->sp[k].kind == 'C' || a->sp[k].kind == 'T';

@@ -38,7 +38,7 @@ static const char *const GIT_LISTS[9] = {"Creature List", "Door List", "Encounte
                                          "SoundList", "StoreList", "TriggerList", "WaypointList"};
 
 typedef struct {
-    char name[20], on_enter[40];
+    char name[20], on_enter[40], on_beat[40];
     int w, h;
     unsigned char *floor;            /* w*h: 1 where the tile has Floor on all four corners */
     int *tid;                        /* w*h tile ids */
@@ -212,6 +212,8 @@ typedef struct {
     char loot[2][17];
     char key[40], keybp[17]; /* a creature carrying a door key: its tag and blueprint */
     int lockdc;              /* a container that starts locked: the pick DC */
+    int amb;                 /* ambush group id (creature in the group, or the container that springs it), 0 = none */
+    int trap, trapdc;        /* a floor trap (kind P) or a trapped container: TRAP_BASE_TYPE number and detect/disarm DC; -1 = absent */
     int gold;
 } marker;
 
@@ -480,9 +482,55 @@ static void check_locks(const gff *ifo, area_info *ai, size_t na, const marker *
     }
 }
 
+/* TRAP_BASE_TYPE families the generator uses (spike, tangle, acid, fire, electrical, gas, frost, sonic), each with tiers 0-3. */
+static int trap_family_ok(int fam)
+{
+    static const int F[8] = {0, 8, 12, 16, 20, 24, 28, 36};
+    int i;
+    for (i = 0; i < 8; i++)
+        if (F[i] == fam) return 1;
+    return 0;
+}
+
+/* Ambush groups (recipe key ambush). Group ids run 1..n in an area; a group has 2 or 3 plain creatures (no key carrier) and at most one
+ * container, which stands near them (the same room) and springs the group when opened; a group without a container is sprung by proximity.
+ * Only areas with a group run the heartbeat script, and the extra scripts ship in the module exactly then. */
+static void check_ambush(area_info *ai, size_t na, const marker *mk, size_t nm)
+{
+    size_t a, i;
+    for (a = 0; a < na; a++) {
+        int maxg = 0, g;
+        for (i = 0; i < nm; i++)
+            if (mk[i].area == (int)a && mk[i].amb > maxg) maxg = mk[i].amb;
+        if ((maxg > 0) != !strcmp(ai[a].on_beat, "scel_beat") || (*ai[a].on_beat && strcmp(ai[a].on_beat, "scel_beat")))
+            BAD("%s: OnHeartbeat is '%s' but the area has %d ambush groups", ai[a].name, ai[a].on_beat, maxg);
+        for (g = 1; g <= maxg; g++) {
+            int members = 0, chests = 0;
+            size_t cm = 0;
+            for (i = 0; i < nm; i++) {
+                if (mk[i].area != (int)a || mk[i].amb != g) continue;
+                if (mk[i].kind == 'C') {
+                    members++;
+                    if (mk[i].key[0]) BAD("%s: ambush group %d hides a key carrier (%s)", ai[a].name, g, mk[i].bp);
+                } else if (mk[i].kind == 'X') {
+                    chests++;
+                    cm = i;
+                } else
+                    BAD("%s: ambush group %d includes a marker of kind %c", ai[a].name, g, mk[i].kind);
+            }
+            if (members < 2 || members > 3) BAD("%s: ambush group %d has %d creatures (expected 2-3)", ai[a].name, g, members);
+            if (chests > 1) BAD("%s: ambush group %d has %d chests", ai[a].name, g, chests);
+            for (i = 0; chests == 1 && i < nm; i++)
+                if (mk[i].area == (int)a && mk[i].amb == g && mk[i].kind == 'C' && cheb(mk[i].cx, mk[i].cy, mk[cm].cx, mk[cm].cy) > 8)
+                    BAD("%s: ambush group %d springs from a chest too far from its creatures", ai[a].name, g);
+        }
+    }
+}
+
 static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, const tileset *ts, resman *rm, const roster *ro)
 {
-    static const struct { const char *name; uint16_t type; } SC[4] = {{"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS}};
+    static const struct { const char *name; uint16_t type; } SC[8] = {{"scel_enter", RES_NSS}, {"scel_enter", RES_NCS}, {"scel_acquire", RES_NSS}, {"scel_acquire", RES_NCS},
+                                                                      {"scel_use", RES_NSS}, {"scel_use", RES_NCS}, {"scel_beat", RES_NSS}, {"scel_beat", RES_NCS}};
     const char *acq = gff_get_string(ifo->root, "Mod_OnAcquirItem");
     int nweak = 0, spawn = erf_find(m, "module", RES_JRL) != NULL || (acq && *acq), cnt[128] = {0}, k, ncreat = 0, ndecor = 0, nlight = 0, ncont = 0, theme = -1;
     size_t a, q, nm = 0, i, j;
@@ -495,7 +543,13 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
     for (a = 0; a < na; a++)
         if (strcmp(ai[a].on_enter, "scel_enter")) BAD("%s: OnEnter is '%s', expected scel_enter", ai[a].name, ai[a].on_enter);
     if (!acq || strcmp(acq, "scel_acquire")) BAD("Mod_OnAcquirItem is '%s', expected scel_acquire", acq ? acq : "");
-    for (k = 0; k < 4; k++) {
+    for (k = 0; k < 8; k++) {
+        if (k >= 4) { /* scel_use and scel_beat ship with recipe key ambush; they are required when an area runs the heartbeat */
+            size_t b;
+            int want = 0;
+            for (b = 0; b < na; b++) want |= !strcmp(ai[b].on_beat, "scel_beat");
+            if (!want) continue;
+        }
         const erf_res *r = erf_find(m, SC[k].name, SC[k].type);
         if (!r || !r->size) BAD("script %s.%s is missing or empty", SC[k].name, res_ext(SC[k].type));
         else if (SC[k].type == RES_NCS && (r->size < 13 || memcmp(r->data, "NCS V1.0B", 9))) BAD("script %s.ncs is not NCS V1.0B", SC[k].name);
@@ -521,7 +575,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         for (q = 0; wl && q < wl->nlist; q++) {
             const char *t = gff_get_string(wl->list[q], "Tag");
             marker *p;
-            if (!t || strncmp(t, "SP", 2) || !t[2] || !strchr("CBTVKRDLX", t[2]) || t[3] != '_') continue;
+            if (!t || strncmp(t, "SP", 2) || !t[2] || !strchr("CBTVKRDLXP", t[2]) || t[3] != '_') continue;
             if (!resref_ok(t + 4)) { BAD("%s: marker %s has a bad blueprint resref", ai[a].name, t); continue; }
             mk = realloc(mk, (nm + 1) * sizeof *mk);
             p = &mk[nm++];
@@ -537,6 +591,9 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
             p->gold = 0;
             p->key[0] = p->keybp[0] = '\0';
             p->lockdc = 0;
+            p->amb = 0;
+            p->trap = -1;
+            p->trapdc = 0;
             {
                 const char *sv = NULL;
                 int64_t iv = 0;
@@ -559,6 +616,17 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
                 ty = var_get(wl->list[q], "scel_lockdc", &sv, &iv);
                 if (ty == 1 && p->kind == 'X' && iv >= 12 && iv <= 30) p->lockdc = (int)iv;
                 else if (ty) BAD("%s: marker %s has a malformed scel_lockdc", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_amb", &sv, &iv);
+                if (ty == 1 && (p->kind == 'C' || p->kind == 'X') && iv >= 1 && iv <= 8) p->amb = (int)iv;
+                else if (ty) BAD("%s: marker %s has a malformed scel_amb", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_trap", &sv, &iv);
+                if (ty == 1 && (p->kind == 'P' || p->kind == 'X') && iv >= 0 && iv <= 40 && (iv & 3) == iv - (iv & ~3) && trap_family_ok((int)(iv & ~3))) p->trap = (int)iv;
+                else if (ty) BAD("%s: marker %s has a malformed scel_trap", ai[a].name, t);
+                ty = var_get(wl->list[q], "scel_trapdc", &sv, &iv);
+                if (ty == 1 && (p->kind == 'P' || p->kind == 'X') && iv >= 12 && iv <= 30) p->trapdc = (int)iv;
+                else if (ty) BAD("%s: marker %s has a malformed scel_trapdc", ai[a].name, t);
+                if (p->kind == 'P' && (p->trap < 0 || !p->trapdc || strcmp(p->bp, "trap"))) BAD("%s: trap marker %s lacks a valid type, DC or the blueprint name 'trap'", ai[a].name, t);
+                if (p->kind == 'X' && ((p->trapdc > 0) != (p->trap >= 0))) BAD("%s: container marker %s has a trap type without a DC or the other way round", ai[a].name, t);
             }
             cnt[(int)p->kind]++;
             if (p->kind == 'C') ncreat++;
@@ -601,7 +669,15 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
                 BAD("%s: marker at (%d,%d) is next to trigger %s", ai[p->area].name, p->cx, p->cy, gff_get_string(tl->list[q], "Tag"));
         if (p->area == 0 && cheb(p->cx, p->cy, (int)(gff_get_float(ifo->root, "Mod_Entry_X", -1) / 10.0), (int)(gff_get_float(ifo->root, "Mod_Entry_Y", -1) / 10.0)) < (nweak ? 1 : 2))
             BAD("marker at (%d,%d) is next to the module entry", p->cx, p->cy);
-        if (!on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0) && !(p->kind == 'D' && on_corridor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0))) BAD("%s: marker at (%d,%d) is not on a floor cell", ai[p->area].name, p->cx, p->cy);
+        if (!on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0) && !((p->kind == 'D' || p->kind == 'P') && on_corridor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0))) BAD("%s: marker at (%d,%d) is not on a floor cell", ai[p->area].name, p->cx, p->cy);
+        if (p->kind == 'P') { /* floor trap: the middle of a full-floor cell or of a straight corridor cell */
+            int sides = ai[p->area].open[p->cy * ai[p->area].w + p->cx] & 15;
+            int corr = !on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0);
+            if (absd(absd(p->ox) - 3.5) > 0.02 && absd(p->ox) > 0.02) BAD("%s: trap at (%d,%d) is not at the middle or a corner spot of its cell", ai[p->area].name, p->cx, p->cy);
+            else if (absd(absd(p->oy) - 3.5) > 0.02 && absd(p->oy) > 0.02) BAD("%s: trap at (%d,%d) is not at the middle or a corner spot of its cell", ai[p->area].name, p->cx, p->cy);
+            else if (corr && (absd(p->ox) > 0.02 || absd(p->oy) > 0.02)) BAD("%s: corridor trap at (%d,%d) is off the middle of its cell", ai[p->area].name, p->cx, p->cy);
+            if (!on_floor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0) && sides != 5 && sides != 10) BAD("%s: trap at (%d,%d) is on a corridor cell that is not straight", ai[p->area].name, p->cx, p->cy);
+        }
         if (p->kind == 'D' && on_corridor(&ai[p->area], p->cx * 10.0 + 5.0, p->cy * 10.0 + 5.0)) { /* corridor props: a straight corridor cell, against a wall (1.6 m off the centre line), 0 or 2 m along it */
             int sides = ai[p->area].open[p->cy * ai[p->area].w + p->cx] & 15, vert = sides == 5;
             double lat = vert ? p->ox : p->oy, lon = vert ? p->oy : p->ox;
@@ -627,6 +703,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
         free(tmp.open);
     }
     check_locks(ifo, ai, na, mk, nm, ro);
+    check_ambush(ai, na, mk, nm);
     /* roster consistency: one theme supplies every creature; objective items match */
     if (ro && boss && cnt['B'] == 1) {
         size_t t;
@@ -730,7 +807,7 @@ static void check_spawn(const erf *m, const gff *ifo, area_info *ai, size_t na, 
             if (ro && theme >= 0 && (mk[i].kind == 'C' || mk[i].kind == 'B'))
                 for (role = 0; role < ROLE_N && cr < 0; role++) (void)in_roster_role(&ro->theme[theme], role, mk[i].bp, &cr);
             for (j = 0; j < i; j++) if (mk[j].kind == mk[i].kind && !strcmp(mk[j].bp, mk[i].bp)) break;
-            if (j == i) check_blueprint(rm, ai[mk[i].area].name, mk[i].kind, mk[i].bp, cr);
+            if (j == i && mk[i].kind != 'P') check_blueprint(rm, ai[mk[i].area].name, mk[i].kind, mk[i].bp, cr);
             for (j = 0; j < 2; j++)
                 if (mk[i].loot[j][0]) {
                     uint8_t *ub;
@@ -871,6 +948,7 @@ int main(int argc, char **argv)
             continue;
         }
         snprintf(a->on_enter, sizeof a->on_enter, "%.39s", gff_get_string(are.root, "OnEnter") ? gff_get_string(are.root, "OnEnter") : "");
+        snprintf(a->on_beat, sizeof a->on_beat, "%.39s", gff_get_string(are.root, "OnHeartbeat") ? gff_get_string(are.root, "OnHeartbeat") : "");
         a->w = (int)gff_get_int(are.root, "Width", 0);
         a->h = (int)gff_get_int(are.root, "Height", 0);
         if (strcmp(gff_get_string(are.root, "Tileset") ? gff_get_string(are.root, "Tileset") : "", tsname))
@@ -924,7 +1002,7 @@ int main(int argc, char **argv)
             size_t t2;
             {
                 const char *wt = gff_get_string(wl->list[q], "Tag");
-                if (!on_floor(a, x, y) && !(wt && !strncmp(wt, "SPD_", 4) && on_corridor(a, x, y))) BAD("%s: waypoint %s is not on a floor cell", a->name, wt);
+                if (!on_floor(a, x, y) && !(wt && (!strncmp(wt, "SPD_", 4) || !strncmp(wt, "SPP_", 4)) && on_corridor(a, x, y))) BAD("%s: waypoint %s is not on a floor cell", a->name, wt);
             }
             for (t2 = 0; trl && t2 < trl->nlist; t2++)
                 if (in_poly(trl->list[t2], x, y)) BAD("%s: waypoint %s lies inside trigger %s", a->name, gff_get_string(wl->list[q], "Tag"), gff_get_string(trl->list[t2], "Tag"));

@@ -74,7 +74,7 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     size_t pos = 0;
     int line = 0, seen_head = 0;
     unsigned have = 0; /* bitmask of single-use keys */
-    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144, H_DRESS = 524288, H_CDRESS = 1048576, H_LOCKS = 2097152 };
+    enum { H_TP = 1, H_ARE = 2, H_GIT = 4, H_NAME = 8, H_TAG = 16, H_SUP = 32, H_DESC = 64, H_ROSTER = 128, H_SCRIPTS = 256, H_MODE = 512, H_CORR = 1024, H_DOORS = 2048, H_DOOR_T = 4096, H_HENCH = 8192, H_SEED = 16384, H_PARTY = 32768, H_MINL = 65536, H_MAXL = 131072, H_LOOTAMT = 262144, H_DRESS = 524288, H_CDRESS = 1048576, H_LOCKS = 2097152, H_AMBUSH = 4194304, H_TRAPS = 8388608 };
 
     memset(r, 0, sizeof *r);
     while (pos < len) {
@@ -164,6 +164,20 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
             else if (!strcmp(rest, "mid")) r->locks = 2;
             else if (!strcmp(rest, "high")) r->locks = 3;
             else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: locks must be off, low, mid or high", line); return -1; }
+        } else if (!strcmp(buf, "ambush")) {
+            if (have & H_AMBUSH) { set_err(err, "recipe line %d: 'ambush' given twice", line); return -1; }
+            have |= H_AMBUSH;
+            if (!strcmp(rest, "low")) r->ambush = 1;
+            else if (!strcmp(rest, "mid")) r->ambush = 2;
+            else if (!strcmp(rest, "high")) r->ambush = 3;
+            else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: ambush must be off, low, mid or high", line); return -1; }
+        } else if (!strcmp(buf, "traps")) {
+            if (have & H_TRAPS) { set_err(err, "recipe line %d: 'traps' given twice", line); return -1; }
+            have |= H_TRAPS;
+            if (!strcmp(rest, "low")) r->traps = 1;
+            else if (!strcmp(rest, "mid")) r->traps = 2;
+            else if (!strcmp(rest, "high")) r->traps = 3;
+            else if (strcmp(rest, "off")) { set_err(err, "recipe line %d: traps must be off, low, mid or high", line); return -1; }
         } else if (!strcmp(buf, "henchmen")) {
             char *end;
             long v;
@@ -301,6 +315,14 @@ int recipe_parse(const char *text, size_t len, const char *dir, recipe *r, char 
     }
     if (r->henchmen && !(have & H_ROSTER)) {
         set_err(err, "recipe: henchmen needs roster and scripts");
+        return -1;
+    }
+    if (r->traps && !(have & H_ROSTER)) {
+        set_err(err, "recipe: traps needs roster and scripts");
+        return -1;
+    }
+    if (r->ambush && !(have & H_ROSTER)) {
+        set_err(err, "recipe: ambush needs roster and scripts");
         return -1;
     }
     if (r->locks && (!(have & H_ROSTER) || !r->kit_corridors || !r->doors)) {

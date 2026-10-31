@@ -70,7 +70,7 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
     size_t nl2 = 0;
     char bossloot[2][17] = {"", ""};
     char bossbp[17] = "";
-    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount, r->dressing, r->corridor_dressing, r->locks};
+    spawn_cfg sc = {ro, cfg->party_size, cfg->min_level, cfg->max_level, r->boss_only, r->loot_test, r->henchmen, r->loot_amount, r->dressing, r->corridor_dressing, r->locks, r->ambush, r->traps};
 
     put(&b, "\n%s (seed %llu)\n", r->module_name, (unsigned long long)cfg->seed);
     if (cfg->min_level == cfg->max_level)
@@ -206,6 +206,16 @@ char *dungeon_summary(const recipe *r, const dungeon *d, const roster *ro, const
                 int ldr, lky, lch;
                 spawn_lock_counts(ar, &ldr, &lky, &lch);
                 put(&b, "    locks (locks %s): %d %s (%d keyed), %d locked %s\n", r->locks == 1 ? "low" : r->locks == 2 ? "mid" : "high", ldr, plural(ldr, "door", "doors"), lky, lch, plural(lch, "container", "containers"));
+            }
+            if (r->traps) {
+                int tf, tc;
+                spawn_trap_counts(ar, &tf, &tc);
+                put(&b, "    traps (traps %s): %d floor %s, %d trapped %s\n", r->traps == 1 ? "low" : r->traps == 2 ? "mid" : "high", tf, plural(tf, "trap", "traps"), tc, plural(tc, "container", "containers"));
+            }
+            if (r->ambush) {
+                int ag, ah, ac;
+                spawn_ambush_counts(ar, &ag, &ah, &ac);
+                put(&b, "    ambush (ambush %s): %d %s, %d hidden %s, %d sprung by a chest\n", r->ambush == 1 ? "low" : r->ambush == 2 ? "mid" : "high", ag, plural(ag, "group", "groups"), ah, plural(ah, "creature", "creatures"), ac);
             }
             if (r->dressing) {
                 put(&b, "    room types (dressing %s):", r->dressing == 1 ? "low" : r->dressing == 2 ? "mid" : "high");

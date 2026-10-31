@@ -171,6 +171,8 @@ loot_amount mid                    optional: low, mid (default) or high, see Lev
 dressing off                       optional: off (default), low, mid or high, see Room dressing
 corridor_dressing off              optional: off (default), low, mid or high, needs corridors kit, see Corridor dressing
 locks off                         optional: off (default), low, mid or high, needs corridors kit and doors, see Locks
+ambush off                        optional: off (default), low, mid or high, see Ambush
+traps off                         optional: off (default), low, mid or high, see Traps
 ```
 
 Both keys together, or neither. **Without them the output is byte-identical to what earlier versions
@@ -280,6 +282,30 @@ Door locks are written into the area GIT (`Locked`, `Lockable`, `OpenLockDC`, `K
 and a flood fill from the arrival point reaches every key holder without passing a keyed door whose own key is still out of reach. Henchmen may not path through locked doors well; use `low` with henchmen.
 Own RNG domain `nwndgen/locks/1`, algorithm id `locks/1`, run after the other planners; without the key, or `off`, output is byte-identical. The summary prints `locks` per area and the manifest records
 `locks=`, `locks_algorithm=` and `locks.<area>=doors N, keyed N, chests N`. Generated and validated; **not yet confirmed in game.**
+
+#### Ambush (same `roster`, recipe key `ambush`)
+
+`ambush off|low|mid|high` (default `off`, needs `roster` and `scripts`) keeps some room creatures hidden until a group is sprung, then they all appear and attack. A group is 2-3 plain creatures of one room
+(never the arrival room, the boss room or a creature carrying a door key). If the room has a lootable container, **opening it** springs the group (also if it is found open or destroyed); otherwise a **player coming within 8 m**
+of the group's first creature springs it (checked every heartbeat, 6 s). `low` makes one group in about half the areas, `mid` one per area, `high` up to two. The hidden creatures are the ones the spawn plan already budgeted and gave their loot:
+creature counts, CR, XP and drops do not change, only when the creatures appear. Hidden creatures still carry their loot when they appear.
+Run time: `scel_enter` keeps the group's markers instead of creating the creatures and attaches `scel_use` to the chest's OnOpen (`SetEventScript`); the area OnHeartbeat is `scel_beat` only in areas with a group.
+The module ships `scel_use` and `scel_beat` (and the compile-time include `scel_inc.nss` lives next to them in `assets/scripts`; it is not shipped) only with this key. `make scripts` compiles all four scripts.
+`dgcheck` checks that every group has 2-3 plain creatures and at most one container nearby, no group hides a key carrier, and the heartbeat script is set exactly on the areas that have a group.
+Own RNG domain `nwndgen/ambush/1`, algorithm id `ambush/1`, run after the locks; without the key, or `off`, output is byte-identical. The summary prints `ambush` per area and the manifest records `ambush=`, `ambush_algorithm=` and
+`ambush.<area>=groups N, hidden N, chests N`. Generated and validated; **not yet confirmed in game** (open points: whether `SetEventScript` on a stock container's OnOpen fires, and how the ambushers behave).
+
+#### Traps (same `roster`, recipe key `traps`)
+
+`traps off|low|mid|high` (default `off`, needs `roster` and `scripts`) adds hidden floor traps and trapped containers. low, mid and high place 1, 3 and 5 floor traps per area and trap 0, 25 and 40 in 100 of the lootable containers.
+A floor trap stands in the middle or on a corner spot (3.5 m) of a full-floor room cell, or in the middle of a straight kit corridor cell (a corridor is 5 m wide, so it can be walked around once found). It never stands in the quiet arrival room of the first area,
+in a cell with a door, within one cell of an arrival or transition point, or within 2 m of another marker. The strength follows the average character level of the band: minor up to level 4, average to 10, strong to 20, deadly above, in one of eight families
+(spike, tangle, acid, fire, electrical, gas, frost, sonic; the holy and negative kinds are left out because they barely hurt or help). Every trap is **detectable and disarmable** at DC 10 + the average level (12-30) and **springs once**.
+`scel_enter` creates floor traps with `CreateTrapAtLocation` from `SPP_trap` markers (`scel_trap` = TRAP_BASE_TYPE number, `scel_trapdc`) and trapped containers with `CreateTrapOnObject`. Henchmen walk into traps like anyone else.
+Traps can hurt: a first-level party meets minor traps (a few points of damage), but use `low` with weak parties. `dgcheck` checks the marker rules (middle or corner spot of a floor cell or the middle of a straight corridor cell, a known trap family and tier, DC 12-30)
+and the generic ones (clear of waypoints, triggers and the module entry, 2 m from other markers, walkable ground).
+Own RNG domain `nwndgen/traps/1`, algorithm id `traps/1`, run after the ambush plan; without the key, or `off`, output is byte-identical. The summary prints `traps` per area and the manifest records `traps=`, `traps_algorithm=` and
+`traps.<area>=floor N, chests N`. Generated and validated; **not yet confirmed in game** (open points: whether the trap appears and can be found and disarmed, and the damage at low levels).
 
 #### Level-scaled loot (same `roster`)
 

@@ -372,6 +372,71 @@ badruns "locks without corridors kit" --recipe "$FX/r_lnokit.txt"
 badruns "locks given twice" --recipe "$FX/r_ldup.txt"
 { cat "$FX/recipe_kit_corr.txt"; echo "locks lots"; } > "$FX/r_lbad.txt"
 badruns "locks lots" --recipe "$FX/r_lbad.txt"
+# ambush off|low|mid|high: some room creatures stay hidden until a chest is opened or a player comes near; the creatures are the ones already planned
+mkdir -p "$T/am"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed 12345 --output "$T/am/off.mod" --manifest "$T/am/off.txt" >"$T/am/off.out" || bad "ambush baseline generate"
+! grep -q 'ambush' "$T/am/off.txt" && ok || bad "ambush appears in the manifest without the recipe key"
+agroups=0; ahidden=0; amod=
+for lvl in low mid high; do
+  { cat "$FX/recipe_kit_corr.txt"; echo "ambush $lvl"; } > "$FX/recipe_kit_amb_$lvl.txt"
+  for seed in 1 2 3 4 5 6 7 8 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_amb_$lvl.txt" --seed $seed --output "$T/am/${lvl}_$seed.mod" --manifest "$T/am/${lvl}_$seed.txt" >"$T/am/${lvl}_$seed.out" || { bad "ambush $lvl generate seed $seed"; continue; }
+    grep -q "^ambush=$lvl\$" "$T/am/${lvl}_$seed.txt" && grep -q '^ambush_algorithm=ambush/1$' "$T/am/${lvl}_$seed.txt" && grep -q '^ambush\.[a-z_0-9]*=groups [0-9]*, hidden [0-9]*, chests [0-9]*$' "$T/am/${lvl}_$seed.txt" && grep -q '^script.scel_beat.ncs_sha256=' "$T/am/${lvl}_$seed.txt" && ok || bad "ambush $lvl manifest seed $seed"
+    grep -q 'ambush (ambush '"$lvl"')' "$T/am/${lvl}_$seed.out" && ok || bad "ambush $lvl summary seed $seed"
+    dgk --roster "$FX/roster_corr_test.txt" "$T/am/${lvl}_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck ambush $lvl seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+    eval "$(sed -n 's/^ambush\.[a-z_0-9]*=groups \([0-9]*\), hidden \([0-9]*\), chests [0-9]*$/agroups=$((agroups + \1)); ahidden=$((ahidden + \2));/p' "$T/am/${lvl}_$seed.txt" | paste -sd' ')"
+    grep -q 'groups [1-9]' "$T/am/${lvl}_$seed.txt" && amod="$T/am/${lvl}_$seed.mod"
+    # hidden creatures are planned ones: the creature and CR totals equal the same seed without the key
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed $seed --output "$T/am/plain_$seed.mod" --force >"$T/am/plain_$seed.out" 2>&1
+    [ "$(grep -E 'creatures [0-9]+|total CR' "$T/am/${lvl}_$seed.out")" = "$(grep -E 'creatures [0-9]+|total CR' "$T/am/plain_$seed.out")" ] && ok || bad "ambush $lvl changed the creature totals, seed $seed"
+  done
+done
+[ "$agroups" -gt 0 ] && [ "$ahidden" -ge $((agroups * 2)) ] && ok || bad "ambush planned no groups over 27 modules ($agroups groups, $ahidden hidden)"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_amb_high.txt" --seed 12345 --output "$T/am/again.mod" >/dev/null && cmp -s "$T/am/again.mod" "$T/am/high_12345.mod" && ok || bad "ambush build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "ambush off"; } > "$FX/recipe_kit_amb_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_amb_off.txt" --seed 12345 --output "$T/am/offkey.mod" >/dev/null && cmp -s "$T/am/offkey.mod" "$T/am/off.mod" && ok || bad "ambush off differs from leaving the key out"
+# negative proof: markers that lose their group id while the area still runs the heartbeat script
+if [ -n "$amod" ]; then
+  LC_ALL=C sed 's/scel_amb/scel_amc/g' "$amod" > "$T/am/nogroup.mod"
+  dgk --roster "$FX/roster_corr_test.txt" "$T/am/nogroup.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted a heartbeat script without ambush groups" || { grep -q "OnHeartbeat is" "$T/dg.txt" && ok || bad "dgcheck heartbeat message: $(head -3 "$T/dg.txt")"; }
+else bad "ambush: no module with a group to run the negative proof on"; fi
+{ cat "$FX/recipe_kit.txt"; echo "ambush high"; } > "$FX/r_anoroster.txt"
+badruns "ambush without roster" --recipe "$FX/r_anoroster.txt"
+{ cat "$FX/recipe_kit_amb_high.txt"; echo "ambush low"; } > "$FX/r_adup.txt"
+badruns "ambush given twice" --recipe "$FX/r_adup.txt"
+{ cat "$FX/recipe_kit_corr.txt"; echo "ambush lots"; } > "$FX/r_abad.txt"
+badruns "ambush lots" --recipe "$FX/r_abad.txt"
+# traps off|low|mid|high: hidden floor traps (rooms and straight corridor cells) and trapped containers, strength by level
+mkdir -p "$T/tr"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed 12345 --output "$T/tr/off.mod" --manifest "$T/tr/off.txt" >/dev/null || bad "traps baseline generate"
+! grep -q 'traps' "$T/tr/off.txt" && ok || bad "traps appears in the manifest without the recipe key"
+tfloor=0; tchest=0; tmod=
+for lvl in low mid high; do
+  { cat "$FX/recipe_kit_corr.txt"; echo "traps $lvl"; } > "$FX/recipe_kit_trap_$lvl.txt"
+  for seed in 1 2 3 4 5 6 7 8 12345; do
+    "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_trap_$lvl.txt" --seed $seed --output "$T/tr/${lvl}_$seed.mod" --manifest "$T/tr/${lvl}_$seed.txt" >"$T/tr/${lvl}_$seed.out" || { bad "traps $lvl generate seed $seed"; continue; }
+    grep -q "^traps=$lvl\$" "$T/tr/${lvl}_$seed.txt" && grep -q '^traps_algorithm=traps/1$' "$T/tr/${lvl}_$seed.txt" && grep -q '^traps\.[a-z_0-9]*=floor [0-9]*, chests [0-9]*$' "$T/tr/${lvl}_$seed.txt" && ok || bad "traps $lvl manifest seed $seed"
+    grep -q 'traps (traps '"$lvl"')' "$T/tr/${lvl}_$seed.out" && ok || bad "traps $lvl summary seed $seed"
+    dgk --roster "$FX/roster_corr_test.txt" "$T/tr/${lvl}_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck traps $lvl seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+    eval "$(sed -n 's/^traps\.[a-z_0-9]*=floor \([0-9]*\), chests \([0-9]*\)$/tfloor=$((tfloor + \1)); tchest=$((tchest + \2));/p' "$T/tr/${lvl}_$seed.txt" | paste -sd' ')"
+    grep -q 'floor [1-9]' "$T/tr/${lvl}_$seed.txt" && tmod="$T/tr/${lvl}_$seed.mod"
+  done
+done
+[ "$tfloor" -gt 0 ] && ok || bad "traps placed no floor trap over 27 modules"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_trap_high.txt" --seed 12345 --output "$T/tr/again.mod" >/dev/null && cmp -s "$T/tr/again.mod" "$T/tr/high_12345.mod" && ok || bad "traps build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "traps off"; } > "$FX/recipe_kit_trap_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_trap_off.txt" --seed 12345 --output "$T/tr/offkey.mod" >/dev/null && cmp -s "$T/tr/offkey.mod" "$T/tr/off.mod" && ok || bad "traps off differs from leaving the key out"
+# negative proofs: an unknown trap type, and a trap marker without its DC
+if [ -n "$tmod" ]; then
+  LC_ALL=C sed 's/scel_trapdc/scel_trapdd/g' "$tmod" > "$T/tr/nodc.mod"
+  dgk --roster "$FX/roster_corr_test.txt" "$T/tr/nodc.mod" >"$T/dg.txt" 2>&1 && bad "dgcheck accepted a trap marker without a DC" || { grep -q "lacks a valid type, DC" "$T/dg.txt" && ok || bad "dgcheck trap message: $(head -3 "$T/dg.txt")"; }
+else bad "traps: no module with a floor trap to run the negative proof on"; fi
+{ cat "$FX/recipe_kit.txt"; echo "traps high"; } > "$FX/r_tnoroster.txt"
+badruns "traps without roster" --recipe "$FX/r_tnoroster.txt"
+{ cat "$FX/recipe_kit_trap_high.txt"; echo "traps low"; } > "$FX/r_tdup.txt"
+badruns "traps given twice" --recipe "$FX/r_tdup.txt"
+{ cat "$FX/recipe_kit_corr.txt"; echo "traps lots"; } > "$FX/r_tbad.txt"
+badruns "traps lots" --recipe "$FX/r_tbad.txt"
 # negative proofs: the validator re-reads the tileset, so a lie about edges, door slots or doors must show
 KSET=tileset_kit_edge.set; sed 's/^Top=Corridor/Top=Bridge/' "$FX/tileset_kit.set" > "$FX/$KSET"
 checkfail "dgcheck rejects wrong corridor edges" dgk "$T/k/k1.mod"

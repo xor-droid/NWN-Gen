@@ -11,6 +11,8 @@
 #define DRESSING_ALGORITHM_VERSION "rooms/1" /* room types and furniture, see plan_rooms */
 #define CORRIDOR_ALGORITHM_VERSION "corridor/1" /* props along kit corridors, see plan_corridor */
 #define LOCKS_ALGORITHM_VERSION "locks/1" /* locked doors, keys and locked chests, see plan_locks */
+#define AMBUSH_ALGORITHM_VERSION "ambush/1" /* hidden creature groups, see plan_ambush */
+#define TRAPS_ALGORITHM_VERSION "traps/1" /* floor traps and trapped containers, see plan_traps */
 #define HENCH_ALGORITHM_VERSION "hench/1" /* which stock henchmen join the first player, see spawn_plan */
 #define SPAWN_AREA_MAX 24 /* creatures per area, boss excluded */
 #define SPAWN_PT_MAX 192  /* markers per area: creatures, objective, scenery, room dressing */
@@ -23,6 +25,12 @@ int spawn_boss_cap(const spawn_cfg *sc);
 int spawn_corridor_props(const dungeon_area *a);
 /* Locked doors, keyed doors and locked containers in an area (recipe key locks). */
 void spawn_lock_counts(const dungeon_area *a, int *doors, int *keyed, int *chests);
+/* Ambush groups of an area: groups, hidden creatures, and groups sprung by a chest (the rest are sprung by proximity). */
+void spawn_ambush_counts(const dungeon_area *a, int *groups, int *hidden, int *chests);
+/* TRAP_BASE_TYPE tier (0 minor, 1 average, 2 strong, 3 deadly) for an average character level. */
+int spawn_trap_tier(int avg_level);
+/* Traps of an area: floor traps and trapped containers. */
+void spawn_trap_counts(const dungeon_area *a, int *floor, int *chests);
 /* Fills d->area[i].sp/nsp, d->theme. Fails if the roster has no theme with a boss under the cap. */
 int spawn_plan(dungeon *d, const spawn_cfg *sc, uint64_t seed, const char *module_tag, char *err);
 

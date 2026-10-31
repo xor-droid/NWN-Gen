@@ -73,6 +73,6 @@ clean:
 # generator and the tests never need it). usage: make scripts NWN_ROOT=/path/to/NWN NWN_USERDIR=/some/dir
 scripts:
 	@test -n "$(NWN_ROOT)" -a -n "$(NWN_USERDIR)" || { echo "set NWN_ROOT and NWN_USERDIR"; exit 2; }
-	cd assets/scripts && for n in scel_enter scel_acquire; do nwn_script_comp --root "$(NWN_ROOT)" --userdirectory "$(NWN_USERDIR)" -o $$n.ncs $$n.nss || exit 1; done
+	cd assets/scripts && for n in scel_enter scel_acquire scel_use scel_beat; do nwn_script_comp --root "$(NWN_ROOT)" --userdirectory "$(NWN_USERDIR)" -o $$n.ncs $$n.nss || exit 1; done
 
 .PHONY: all test sanitize clean scripts

@@ -6,6 +6,9 @@
 //   SPD_ decor prop   SPL_ light (brazier, torch ...)   SPX_ lootable container (barrel, crate)
 // A creature marker may also carry scel_key / scel_keybp (a door key item to carry: tag and blueprint), and a container marker
 // scel_lockdc (it starts locked, pick DC) -- recipe key locks. Locked doors themselves are written into the area GIT.
+// scel_amb (recipe key ambush): a creature marker with it stays hidden until its group is sprung (see scel_inc, scel_use, scel_beat);
+// a container marker with it springs that group when opened.
+// SPP_ trap (recipe key traps): scel_trap = TRAP_BASE_TYPE, scel_trapdc = detect and disarm DC; a container marker with scel_trapdc starts trapped.
 // A creature or boss marker may carry local variables set by the generator: scel_loot / scel_loot2 (item blueprints the
 // creature carries) and scel_gold (gold pieces). Their presence turns off the stock random monster treasure (X2_L_NOTREASURE
 // on the module, set before anything is created because the stock OnSpawn script rolls it inside CreateObject).
@@ -16,6 +19,8 @@
 // Quest ID "scel_main": entry 1 on the first area entry.
 // Henchmen (recipe key henchmen N): the generator stores the count in the module variable scel_hn and the stock henchman
 // blueprints in scel_h1..scel_hN; the first PC to enter gets them as companions (AddHenchman), once.
+
+#include "scel_inc"
 
 int MAX_MARKERS = 200;
 
@@ -42,44 +47,6 @@ void JoinHenchmen(object oPC)
     }
 }
 
-// Items and gold the generator assigned to marker n. Droppable, so they land in the corpse loot like the key does.
-void GiveSpawnLoot(object oCreature, object oArea, int n)
-{
-    string sA = GetLocalString(oArea, "scel_a" + IntToString(n));
-    string sB = GetLocalString(oArea, "scel_b" + IntToString(n));
-    int nGold = GetLocalInt(oArea, "scel_g" + IntToString(n));
-    int nWeak = GetLocalInt(oArea, "scel_w" + IntToString(n));
-    object oItem;
-    string sKey = GetLocalString(oArea, "scel_k" + IntToString(n));
-    if (!GetIsObjectValid(oCreature))
-        return;
-    if (nWeak)
-    {
-        SetCurrentHitPoints(oCreature, 1);
-        DestroyObject(GetItemInSlot(INVENTORY_SLOT_RIGHTHAND, oCreature));
-        DestroyObject(GetItemInSlot(INVENTORY_SLOT_LEFTHAND, oCreature));
-    }
-    if (sA != "")
-    {
-        oItem = CreateItemOnObject(sA, oCreature);
-        SetDroppableFlag(oItem, TRUE);
-    }
-    if (sB != "")
-    {
-        oItem = CreateItemOnObject(sB, oCreature);
-        SetDroppableFlag(oItem, TRUE);
-    }
-    if (sKey != "")
-    {
-        // A door key (recipe key locks): the blueprint is an arbitrary stock key, renamed, with the tag the locked door names.
-        oItem = CreateItemOnObject(GetLocalString(oArea, "scel_y" + IntToString(n)), oCreature, 1, sKey);
-        SetName(oItem, "Door Key");
-        SetDroppableFlag(oItem, TRUE);
-    }
-    if (nGold > 0)
-        CreateItemOnObject("nw_it_gold001", oCreature, nGold);
-}
-
 void main()
 {
     object oPC = GetEnteringObject();
@@ -92,6 +59,7 @@ void main()
     int nMark = 0;
     int bLoot = FALSE;
     int nSeen = 0;
+    int nGroups = 0;
     int i;
 
     // Area OnEnter also fires for creatures we spawn here; only a PC may trigger it.
@@ -125,6 +93,9 @@ void main()
             SetLocalString(oArea, "scel_k" + IntToString(nMark), GetLocalString(o, "scel_key"));
             SetLocalString(oArea, "scel_y" + IntToString(nMark), GetLocalString(o, "scel_keybp"));
             SetLocalInt(oArea, "scel_d" + IntToString(nMark), GetLocalInt(o, "scel_lockdc"));
+            SetLocalInt(oArea, "scel_m" + IntToString(nMark), GetLocalInt(o, "scel_amb"));
+            SetLocalInt(oArea, "scel_tt" + IntToString(nMark), GetLocalInt(o, "scel_trap"));
+            SetLocalInt(oArea, "scel_td" + IntToString(nMark), GetLocalInt(o, "scel_trapdc"));
             if (GetLocalString(o, "scel_loot") != "" || GetLocalInt(o, "scel_gold") > 0)
                 bLoot = TRUE;
             nMark++;
@@ -143,7 +114,20 @@ void main()
         sKind = GetStringLeft(sTag, 4);
         sBp = GetStringRight(sTag, GetStringLength(sTag) - 4);
         location lLoc = GetLocalLocation(oArea, "scel_l" + IntToString(i));
-        if (sKind == "SPC_")
+        int nAmb = GetLocalInt(oArea, "scel_m" + IntToString(i));
+        if (nAmb > nGroups)
+            nGroups = nAmb;
+        if (sKind == "SPC_" && nAmb > 0)
+        {
+            // Ambush member (recipe key ambush): stays hidden; FireAmbush creates it when its group is sprung.
+            string sG = IntToString(nAmb);
+            int nCount = GetLocalInt(oArea, "scel_gc" + sG);
+            SetLocalInt(oArea, "scel_gi" + sG + "_" + IntToString(nCount), i);
+            SetLocalInt(oArea, "scel_gc" + sG, nCount + 1);
+            if (nCount == 0)
+                SetLocalLocation(oArea, "scel_ga" + sG, lLoc);
+        }
+        else if (sKind == "SPC_")
             GiveSpawnLoot(CreateObject(OBJECT_TYPE_CREATURE, sBp, lLoc), oArea, i);
         else if (sKind == "SPX_")
         {
@@ -156,6 +140,25 @@ void main()
                 SetLockUnlockDC(oBox, nDc);
                 SetLocked(oBox, TRUE);
             }
+            if (GetLocalInt(oArea, "scel_td" + IntToString(i)) > 0 && GetIsObjectValid(oBox))
+            {
+                // Trapped container (recipe key traps).
+                CreateTrapOnObject(GetLocalInt(oArea, "scel_tt" + IntToString(i)), oBox);
+                ScelSetTrap(oBox, GetLocalInt(oArea, "scel_td" + IntToString(i)));
+            }
+            if (nAmb > 0 && GetIsObjectValid(oBox))
+            {
+                // Opening this container springs ambush group nAmb (scel_use); scel_beat also springs it if the chest is found open or destroyed.
+                SetLocalInt(oBox, "scel_amb", nAmb);
+                SetLocalInt(oArea, "scel_gx" + IntToString(nAmb), TRUE);
+                SetLocalObject(oArea, "scel_go" + IntToString(nAmb), oBox);
+                SetEventScript(oBox, EVENT_SCRIPT_PLACEABLE_ON_OPEN, "scel_use");
+            }
+        }
+        else if (sKind == "SPP_")
+        {
+            // Floor trap (recipe key traps): type and DC come from the marker.
+            ScelSetTrap(CreateTrapAtLocation(GetLocalInt(oArea, "scel_tt" + IntToString(i)), lLoc, 2.0), GetLocalInt(oArea, "scel_td" + IntToString(i)));
         }
         else if (sKind == "SPD_" || sKind == "SPL_")
             CreateObject(OBJECT_TYPE_PLACEABLE, sBp, lLoc); // scenery: props, lights, lootable containers
@@ -182,6 +185,8 @@ void main()
             SetLocalObject(oArea, "scel_vault", oVault);
         }
     }
+
+    SetLocalInt(oArea, "scel_ng", nGroups);
 
     // Pass 2: the key goes on the boss, the relic in the vault.
     for (i = 0; i < nMark; i++)

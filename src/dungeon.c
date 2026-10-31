@@ -648,7 +648,7 @@ static const char *const GIT_LISTS[9] = {"Creature List", "Door List", "Encounte
 static int add_int(gff_struct *s, const char *l, gff_type t, int64_t v, char *err) { return gff_set_int(s, l, t, v, err); }
 
 static int build_are(const gff *tpl, const tilepack *tp, const recipe_area *a, const layout *lay,
-                     const placed_tile *tiles, const char *on_enter, const roster_theme *amb, gff *out, char *err)
+                     const placed_tile *tiles, const char *on_enter, const char *on_beat, const roster_theme *amb, gff *out, char *err)
 {
     gff_struct *s = gff_struct_clone(tpl->root);
     gff_field *tl;
@@ -674,7 +674,7 @@ static int build_are(const gff *tpl, const tilepack *tp, const recipe_area *a, c
     TRY(gff_set_string(s, "Tileset", GFF_RESREF, tp->tileset, err));
     TRY(gff_set_string(s, "OnEnter", GFF_RESREF, on_enter, err));
     TRY(gff_set_string(s, "OnExit", GFF_RESREF, "", err));
-    TRY(gff_set_string(s, "OnHeartbeat", GFF_RESREF, "", err));
+    TRY(gff_set_string(s, "OnHeartbeat", GFF_RESREF, on_beat, err));
     TRY(gff_set_string(s, "OnUserDefined", GFF_RESREF, "", err));
     if (amb && amb->has_ambience) { /* theme lighting; the donor ARE is a permanent-night area, so only the Moon values show */
         TRY(gff_set_int(s, "MoonAmbientColor", GFF_DWORD, amb->amb_ambient, err));
@@ -870,7 +870,8 @@ static int build_git_gic(const gff *tpl, const dungeon *d, size_t i, const recip
         if ((p->loot[0][0] && add_var(w, "scel_loot", 1, p->loot[0], 0, err)) || (p->loot[1][0] && add_var(w, "scel_loot2", 1, p->loot[1], 0, err)) ||
             (p->gold && add_var(w, "scel_gold", 0, NULL, p->gold, err)) ||
             (p->weak && add_var(w, "scel_weak", 0, NULL, 1, err)) ||
-            (p->keytag[0] && (add_var(w, "scel_key", 1, p->keytag, 0, err) || add_var(w, "scel_keybp", 1, p->keybp, 0, err))) || (p->lockdc && add_var(w, "scel_lockdc", 0, NULL, p->lockdc, err))) {
+            (p->keytag[0] && (add_var(w, "scel_key", 1, p->keytag, 0, err) || add_var(w, "scel_keybp", 1, p->keybp, 0, err))) || (p->lockdc && add_var(w, "scel_lockdc", 0, NULL, p->lockdc, err)) || (p->amb && add_var(w, "scel_amb", 0, NULL, p->amb, err)) ||
+            ((p->kind == 'P' || p->trapdc) && add_var(w, "scel_trap", 0, NULL, p->trap, err)) || (p->trapdc && add_var(w, "scel_trapdc", 0, NULL, p->trapdc, err))) {
             gff_struct_free(w);
             return -1;
         }
@@ -1276,7 +1277,11 @@ int dungeon_build_ex(const recipe *r, const tilepack *tp, const gff *tpl_are, co
     for (i = 0; i < r->nareas; i++) {
         dungeon_area *a = &out->area[i];
         gff are, git, gic;
-        if (build_are(tpl_are, tp, &r->areas[i], &a->lay, a->tiles, out->has_spawn ? "scel_enter" : "",
+        int sprung = 0;
+        size_t sq;
+        for (sq = 0; sq < a->nsp; sq++)
+            sprung |= a->sp[sq].amb != 0;
+        if (build_are(tpl_are, tp, &r->areas[i], &a->lay, a->tiles, out->has_spawn ? "scel_enter" : "", sprung ? "scel_beat" : "",
                       out->has_spawn ? &sc->ro->theme[out->theme] : NULL, &are, err) != 0) {
             gff_free(&are);
             goto fail;
