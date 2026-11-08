@@ -568,6 +568,28 @@ badruns "reactions without roster" --recipe "$FX/r_rnoroster.txt"
 badruns "reactions given twice" --recipe "$FX/r_rdup.txt"
 { cat "$FX/recipe_kit_corr.txt"; echo "reactions high"; } > "$FX/r_rbad.txt"
 badruns "reactions high" --recipe "$FX/r_rbad.txt"
+# one_hp on|off: test aid, the scripts give every creature they create 1 hit point; the generator only writes the module variable scel_hp1
+mkdir -p "$T/oh"
+{ cat "$FX/recipe_kit_corr.txt"; echo "one_hp on"; } > "$FX/recipe_kit_onehp.txt"
+for seed in 12345 777; do
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_corr.txt" --seed $seed --output "$T/oh/plain_$seed.mod" --manifest "$T/oh/plain_$seed.txt" >"$T/oh/plain_$seed.out" 2>&1 || bad "one_hp baseline generate seed $seed"
+  "$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_onehp.txt" --seed $seed --output "$T/oh/on_$seed.mod" --manifest "$T/oh/on_$seed.txt" >"$T/oh/on_$seed.out" 2>&1 || { bad "one_hp generate seed $seed"; continue; }
+  grep -q '^one_hp=on$' "$T/oh/on_$seed.txt" && ! grep -q 'one_hp' "$T/oh/plain_$seed.txt" && ok || bad "one_hp manifest seed $seed"
+  grep -q 'one_hp on' "$T/oh/on_$seed.out" && ! grep -q 'one_hp' "$T/oh/plain_$seed.out" && ok || bad "one_hp summary seed $seed"
+  # the compiled scripts name the variable too, so the module with the key must hold exactly one more occurrence (its IFO variable)
+  [ "$(LC_ALL=C grep -ao 'scel_hp1' "$T/oh/on_$seed.mod" | wc -l)" -eq $(( $(LC_ALL=C grep -ao 'scel_hp1' "$T/oh/plain_$seed.mod" | wc -l) + 1 )) ] && ok || bad "one_hp module variable seed $seed"
+  dgk --roster "$FX/roster_corr_test.txt" "$T/oh/on_$seed.mod" >"$T/dg.txt" 2>&1 && ok || bad "dgcheck one_hp seed $seed: $(grep BAD "$T/dg.txt" | head -3)"
+  [ "$(grep -E 'creatures [0-9]+|total CR' "$T/oh/on_$seed.out")" = "$(grep -E 'creatures [0-9]+|total CR' "$T/oh/plain_$seed.out")" ] && ok || bad "one_hp changed the creature totals, seed $seed"
+done
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_onehp.txt" --seed 12345 --output "$T/oh/again.mod" >/dev/null && cmp -s "$T/oh/again.mod" "$T/oh/on_12345.mod" && ok || bad "one_hp build is not reproducible"
+{ cat "$FX/recipe_kit_corr.txt"; echo "one_hp off"; } > "$FX/recipe_kit_onehp_off.txt"
+"$BUILD/nwndgen" --game nwn1 --base "$FX/base.mod" --recipe "$FX/recipe_kit_onehp_off.txt" --seed 12345 --output "$T/oh/offkey.mod" >/dev/null && cmp -s "$T/oh/offkey.mod" "$T/oh/plain_12345.mod" && ok || bad "one_hp off differs from leaving the key out"
+{ cat "$FX/recipe_kit.txt"; echo "one_hp on"; } > "$FX/r_ohnoroster.txt"
+badruns "one_hp without roster" --recipe "$FX/r_ohnoroster.txt"
+{ cat "$FX/recipe_kit_onehp.txt"; echo "one_hp off"; } > "$FX/r_ohdup.txt"
+badruns "one_hp given twice" --recipe "$FX/r_ohdup.txt"
+{ cat "$FX/recipe_kit_corr.txt"; echo "one_hp high"; } > "$FX/r_ohbad.txt"
+badruns "one_hp high" --recipe "$FX/r_ohbad.txt"
 # negative proofs: the validator re-reads the tileset, so a lie about edges, door slots or doors must show
 KSET=tileset_kit_edge.set; sed 's/^Top=Corridor/Top=Bridge/' "$FX/tileset_kit.set" > "$FX/$KSET"
 checkfail "dgcheck rejects wrong corridor edges" dgk "$T/k/k1.mod"
